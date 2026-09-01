@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMINISTRATOR
+  INVESTIGATOR
+  AUDITOR
+  CUSTODIAN
+}
+
+enum EvidenceStatus {
+  PENDING
+  VERIFIED
+  FLAGGED
+  SEALED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         UserRole
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  casesLed             Case[]                 @relation("CaseLead")
+  evidenceAdded        Evidence[]             @relation("EvidenceCollector")
+  custodyEvents        CustodyEvent[]
+  auditLogs            AuditLog[]
+  comments             CaseComment[]
+  commentMentions      CommentMention[]       @relation("CommentMentions")
+  notificationPrefs    NotificationPreference?
+  annotations          EvidenceAnnotation[]   @relation("AnnotationUser")
+}
+
+model Case {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  status      String   @default("Active")
+  priority    String   @default("Medium")
+  leadUserId  String
+  lead        User     @relation("CaseLead", fields: [leadUserId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  evidence Evidence[]
+  comments CaseComment[]
+}
+
+model Evidence {
+  id            String         @id @default(uuid())
+  caseId        String?
+  case          Case?          @relation(fields: [caseId], references: [id])
+  name          String
+  type          String
+  ownerOrg      String
+  status        EvidenceStatus @default(PENDING)
+  sizeBytes     Int
+  mimeType      String
+  sha256        String
+  storageKey    String
+  collectedById String
+  collectedBy   User           @relation("EvidenceCollector", fields: [collectedById], references: [id])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  custodyEvents CustodyEvent[]
+  annotations   EvidenceAnnotation[]
+
+  @@index([sha256])
+  @@index([caseId, createdAt])
+}
+model CustodyEvent {
+  id           String   @id @default(uuid())
+  evidenceId   String
+  evidence     Evidence @relation(fields: [evidenceId], references: [id])
+  action       String
+  actorUserId  String
+  actor        User     @relation(fields: [actorUserId], references: [id])
+  fromLocation String?
+  toLocation   String?
+  note         String
+  timestamp    DateTime @default(now())
+
+  @@index([evidenceId, timestamp])
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorUserId  String?
+  actor        User?    @relation(fields: [actorUserId], references: [id])
+  action       String
+  resourceType String
+  resourceId   String
+  detailJson   Json
+  ipAddress    String?
+  userAgent    String?
+  timestamp    DateTime @default(now())
+
+  @@index([resourceType, resourceId, timestamp])
+}
+
+model NotificationPreference {
+  id              String  @id @default(uuid())
+  userId          String  @unique
+  user            User    @relation(fields: [userId], references: [id])
+  evidenceUploads Boolean @default(true)
+  caseUpdates     Boolean @default(true)
+  systemAlerts    Boolean @default(true)
+  weeklyDigest    Boolean @default(false)
+}
+
+model CaseComment {
+  id        String   @id @default(uuid())
+  caseId    String
+  case      Case     @relation(fields: [caseId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  content   String
+  parentId  String?
+  parent    CaseComment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   CaseComment[] @relation("CommentReplies")
+  mentions  CommentMention[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([caseId, createdAt])
+}
+
+model CommentMention {
+  id            String      @id @default(uuid())
+  commentId     String
+  comment       CaseComment @relation(fields: [commentId], references: [id])
+  userId        String
+  mentionedUser User        @relation("CommentMentions", fields: [userId], references: [id])
+}
+
+model EvidenceAnnotation {
+  id         String   @id @default(uuid())
+  evidenceId String
+  evidence   Evidence @relation(fields: [evidenceId], references: [id])
+  userId     String
+  user       User     @relation("AnnotationUser", fields: [userId], references: [id])
+  type       String
+  points     Json
+  text       String?
+  color      String
+  createdAt  DateTime @default(now())
+}
