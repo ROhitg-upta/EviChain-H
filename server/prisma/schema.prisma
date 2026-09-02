@@ -38,6 +38,8 @@ model User {
   commentMentions      CommentMention[]       @relation("CommentMentions")
   notificationPrefs    NotificationPreference?
   annotations          EvidenceAnnotation[]   @relation("AnnotationUser")
+  notifications        Notification[]
+  searchPresets        SearchPreset[]
 }
 
 model Case {
@@ -155,3 +157,29 @@ model EvidenceAnnotation {
   color      String
   createdAt  DateTime @default(now())
 }
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // success | warning | error | info | transfer | mention
+  title     String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read, createdAt])
+}
+
+model SearchPreset {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  filters   Json
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+

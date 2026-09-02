@@ -11,8 +11,10 @@ import publicRoutes   from "./routes/public.routes";
 import reportsRoutes  from "./routes/reports.routes";
 import searchRoutes   from "./routes/search.routes";
 import usersRoutes    from "./routes/users.routes";
+import notificationsRoutes from "./routes/notifications.routes";
 
 const app = express();
+
 
 const allowedOrigins = [
   process.env.CLIENT_URL,
@@ -47,9 +49,11 @@ app.use("/evidence", evidenceRoutes);
 app.use("/cases",    casesRoutes);
 app.use("/audit",    auditRoutes);
 app.use("/public",   publicRoutes);
-app.use("/reports",  reportsRoutes);
-app.use("/search",   searchRoutes);
-app.use("/users",    usersRoutes);
+app.use("/reports",       reportsRoutes);
+app.use("/search",        searchRoutes);
+app.use("/users",         usersRoutes);
+app.use("/notifications", notificationsRoutes);
+
 
 // 404 fallback
 app.use((_req, res) => {

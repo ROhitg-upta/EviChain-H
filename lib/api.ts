@@ -868,3 +868,295 @@ export async function saveEvidenceAnnotations(
   if (!res.ok) { const e = await safeJson<{ error: string }>(res); throw new Error(e.error || "Failed"); }
   return safeJson(res);
 }
+
+// ─── Real-Time Notifications ──────────────────────────────────────────────────
+
+export interface NotificationRecord {
+  id: string;
+  userId: string;
+  type: "success" | "warning" | "error" | "info" | "transfer" | "mention";
+  title: string;
+  message: string;
+  link: string | null;
+  read: boolean;
+  createdAt: string;
+}
+
+export function getNotificationStreamUrl(): string {
+  return `${API_URL}/notifications/stream`;
+}
+
+export async function getNotifications(
+  token: string,
+  options?: { limit?: number; unreadOnly?: boolean },
+): Promise<{ notifications: NotificationRecord[]; unreadCount: number }> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.unreadOnly) params.set("unreadOnly", "true");
+
+  const res = await apiFetch(`${API_URL}/notifications?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to fetch notifications");
+  }
+
+  return safeJson(res);
+}
+
+export async function markNotificationRead(token: string, id: string): Promise<NotificationRecord> {
+  const res = await apiFetch(`${API_URL}/notifications/${id}/read`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to mark notification as read");
+  }
+
+  return safeJson(res);
+}
+
+export async function markAllNotificationsRead(token: string): Promise<{ count: number }> {
+  const res = await apiFetch(`${API_URL}/notifications/read-all`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to mark all notifications as read");
+  }
+
+  return safeJson(res);
+}
+
+export async function deleteNotification(token: string, id: string): Promise<{ message: string }> {
+  const res = await apiFetch(`${API_URL}/notifications/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to delete notification");
+  }
+
+  return safeJson(res);
+}
+
+// ─── Bulk Operations ──────────────────────────────────────────────────────────
+
+export async function bulkUploadEvidence(
+  token: string,
+  files: File[],
+  data?: { caseId?: string; ownerOrg?: string; type?: string },
+): Promise<{ message: string; count: number; items: EvidenceRecord[] }> {
+  const formData = new FormData();
+  files.forEach((f) => formData.append("files", f));
+  if (data?.caseId) formData.append("caseId", data.caseId);
+  if (data?.ownerOrg) formData.append("ownerOrg", data.ownerOrg);
+  if (data?.type) formData.append("type", data.type);
+
+  const res = await apiFetch(`${API_URL}/evidence/bulk-upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Bulk upload failed");
+  }
+
+  return safeJson(res);
+}
+
+export async function bulkDownloadEvidence(token: string, evidenceIds: string[]): Promise<Blob> {
+  const res = await apiFetch(`${API_URL}/evidence/bulk-download`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ evidenceIds }),
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Bulk download failed");
+  }
+
+  return res.blob();
+}
+
+// ─── Custody Transfer ─────────────────────────────────────────────────────────
+
+export async function transferEvidenceCustody(
+  token: string,
+  evidenceId: string,
+  data: { toUserId: string; toLocation?: string; fromLocation?: string; note?: string },
+): Promise<{ message: string; custodyEvent: CustodyEvent }> {
+  const res = await apiFetch(`${API_URL}/evidence/${evidenceId}/transfer`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Custody transfer failed");
+  }
+
+  return safeJson(res);
+}
+
+// ─── Advanced Search & Saved Presets ──────────────────────────────────────────
+
+export interface SearchPresetRecord {
+  id: string;
+  userId: string;
+  name: string;
+  filters: Record<string, unknown>;
+  createdAt: string;
+}
+
+export async function advancedSearch(
+  token: string,
+  params: {
+    q?: string;
+    type?: string;
+    status?: string;
+    caseId?: string;
+    ownerOrg?: string;
+    uploaderId?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+  },
+): Promise<{
+  query: string;
+  totalMatches: number;
+  results: Array<EvidenceRecord & { relevanceScore: number }>;
+}> {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== "") searchParams.set(k, String(v));
+  });
+
+  const res = await apiFetch(`${API_URL}/search/advanced?${searchParams.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Advanced search failed");
+  }
+
+  return safeJson(res);
+}
+
+export async function getSearchPresets(token: string): Promise<SearchPresetRecord[]> {
+  const res = await apiFetch(`${API_URL}/search/presets`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to fetch search presets");
+  }
+
+  return safeJson(res);
+}
+
+export async function saveSearchPreset(
+  token: string,
+  name: string,
+  filters: Record<string, unknown>,
+): Promise<SearchPresetRecord> {
+  const res = await apiFetch(`${API_URL}/search/presets`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name, filters }),
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to save search preset");
+  }
+
+  return safeJson(res);
+}
+
+export async function deleteSearchPreset(token: string, id: string): Promise<{ message: string }> {
+  const res = await apiFetch(`${API_URL}/search/presets/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to delete search preset");
+  }
+
+  return safeJson(res);
+}
+
+// ─── PDF Certificates & Reports ───────────────────────────────────────────────
+
+export async function downloadEvidenceCertificate(token: string, evidenceId: string): Promise<Blob> {
+  const res = await apiFetch(`${API_URL}/evidence/${evidenceId}/certificate`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to generate evidence certificate");
+  }
+
+  return res.blob();
+}
+
+export async function downloadCaseSummaryPDF(token: string, caseId: string): Promise<Blob> {
+  const res = await apiFetch(`${API_URL}/cases/${caseId}/export/pdf`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to generate case summary PDF");
+  }
+
+  return res.blob();
+}
+
+export async function downloadEvidenceCsv(
+  token: string,
+  filters?: { status?: string; caseId?: string; type?: string },
+): Promise<Blob> {
+  const params = new URLSearchParams();
+  if (filters?.status) params.set("status", filters.status);
+  if (filters?.caseId) params.set("caseId", filters.caseId);
+  if (filters?.type) params.set("type", filters.type);
+
+  const res = await apiFetch(`${API_URL}/evidence/export/csv?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to export evidence CSV");
+  }
+
+  return res.blob();
+}
+

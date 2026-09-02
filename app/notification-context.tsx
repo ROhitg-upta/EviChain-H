@@ -10,9 +10,16 @@ import {
   type ReactNode,
 } from "react";
 import { useAuth } from "./auth-context";
-import { getAuditLogs } from "../lib/api";
+import {
+  getNotifications,
+  markNotificationRead as apiMarkRead,
+  markAllNotificationsRead as apiMarkAllRead,
+  deleteNotification as apiDeleteNotification,
+  getNotificationStreamUrl,
+  type NotificationRecord,
+} from "../lib/api";
 
-export type NotificationType = "info" | "success" | "warning" | "error";
+export type NotificationType = "info" | "success" | "warning" | "error" | "transfer" | "mention";
 
 export interface Notification {
   id: string;
@@ -40,7 +47,7 @@ interface NotificationState {
 }
 
 type NotificationAction =
-  | { type: "SET_NOTIFICATIONS"; payload: Notification[] }
+  | { type: "SET_NOTIFICATIONS"; payload: { notifications: Notification[]; unreadCount: number } }
   | { type: "ADD_NOTIFICATION"; payload: Notification }
   | { type: "MARK_READ"; payload: string }
   | { type: "MARK_ALL_READ" }
@@ -56,10 +63,6 @@ const initialState: NotificationState = {
   loading: false,
 };
 
-function countUnread(notifications: Notification[]) {
-  return notifications.filter((n) => !n.read).length;
-}
-
 function notificationReducer(
   state: NotificationState,
   action: NotificationAction,
@@ -68,26 +71,33 @@ function notificationReducer(
     case "SET_NOTIFICATIONS":
       return {
         ...state,
-        notifications: action.payload,
-        unreadCount: countUnread(action.payload),
+        notifications: action.payload.notifications,
+        unreadCount: action.payload.unreadCount,
       };
     case "ADD_NOTIFICATION": {
       const next = [action.payload, ...state.notifications];
-      return { ...state, notifications: next, unreadCount: countUnread(next) };
+      return {
+        ...state,
+        notifications: next,
+        unreadCount: state.unreadCount + (action.payload.read ? 0 : 1),
+      };
     }
     case "MARK_READ": {
       const next = state.notifications.map((n) =>
         n.id === action.payload ? { ...n, read: true } : n,
       );
-      return { ...state, notifications: next, unreadCount: countUnread(next) };
+      const unread = Math.max(0, state.unreadCount - 1);
+      return { ...state, notifications: next, unreadCount: unread };
     }
     case "MARK_ALL_READ": {
       const next = state.notifications.map((n) => ({ ...n, read: true }));
       return { ...state, notifications: next, unreadCount: 0 };
     }
     case "REMOVE_NOTIFICATION": {
+      const removed = state.notifications.find((n) => n.id === action.payload);
       const next = state.notifications.filter((n) => n.id !== action.payload);
-      return { ...state, notifications: next, unreadCount: countUnread(next) };
+      const unread = removed && !removed.read ? Math.max(0, state.unreadCount - 1) : state.unreadCount;
+      return { ...state, notifications: next, unreadCount: unread };
     }
     case "ADD_TOAST":
       return { ...state, toasts: [...state.toasts, action.payload] };
@@ -106,79 +116,21 @@ function notificationReducer(
 interface NotificationContextValue extends NotificationState {
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
-  dismiss: (id: string) => void;
+  dismiss: (id: string) => Promise<void>;
   toast: (toast: Omit<ToastMessage, "id">) => void;
   dismissToast: (id: string) => void;
   refresh: () => Promise<void>;
 }
 
-const NotificationContext = createContext<NotificationContextValue | null>(
-  null,
-);
+const NotificationContext = createContext<NotificationContextValue | null>(null);
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 45_000;
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { user, accessToken } = useAuth();
   const [state, dispatch] = useReducer(notificationReducer, initialState);
-  const pollRef  = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Persist which IDs have been marked read across polls
-  const readIdsRef = useRef<Set<string>>(new Set());
-
-  const refresh = useCallback(async () => {
-    if (!accessToken) return;
-    dispatch({ type: "SET_LOADING", payload: true });
-    try {
-      const logs = await getAuditLogs(accessToken, { limit: 20 });
-      const derived: Notification[] = logs.map((l) => ({
-        id: l.id,
-        type: l.action.includes("flag")   ? "warning" as const
-             : l.action.includes("delete") ? "error"   as const
-             : l.action.includes("upload") || l.action.includes("create") ? "success" as const
-             : "info" as const,
-        title:     l.action,
-        message:   `${l.resourceType} · ${l.resourceId.slice(0, 8)}`,
-        // Preserve read state from previous polls
-        read:      readIdsRef.current.has(l.id),
-        createdAt: l.timestamp,
-        link:      l.resourceType === "evidence"
-          ? `/evidence/${l.resourceId}`
-          : l.resourceType === "case"
-          ? `/cases/${l.resourceId}`
-          : undefined,
-      }));
-      dispatch({ type: "SET_NOTIFICATIONS", payload: derived });
-    } catch {
-      // Silent fail on background refresh
-    } finally {
-      dispatch({ type: "SET_LOADING", payload: false });
-    }
-  }, [accessToken]);
-
-  useEffect(() => {
-    if (!user || !accessToken) return;
-    refresh();
-    pollRef.current = setInterval(refresh, POLL_INTERVAL_MS);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [user, accessToken, refresh]);
-
-  const markAsRead = useCallback(async (id: string) => {
-    readIdsRef.current.add(id);
-    dispatch({ type: "MARK_READ", payload: id });
-  }, []);
-
-  const markAllAsRead = useCallback(async () => {
-    // Add all current notification IDs to the persistent read set
-    state.notifications.forEach((n) => readIdsRef.current.add(n.id));
-    dispatch({ type: "MARK_ALL_READ" });
-  }, [state.notifications]);
-
-  const dismiss = useCallback((id: string) => {
-    readIdsRef.current.delete(id);
-    dispatch({ type: "REMOVE_NOTIFICATION", payload: id });
-  }, []);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const toast = useCallback((t: Omit<ToastMessage, "id">) => {
     const id = `toast_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -188,6 +140,121 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       setTimeout(() => dispatch({ type: "REMOVE_TOAST", payload: id }), duration);
     }
   }, []);
+
+  const refresh = useCallback(async () => {
+    if (!accessToken) return;
+    dispatch({ type: "SET_LOADING", payload: true });
+    try {
+      const data = await getNotifications(accessToken, { limit: 30 });
+      const mapped: Notification[] = data.notifications.map((n) => ({
+        id: n.id,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        read: n.read,
+        createdAt: n.createdAt,
+        link: n.link ?? undefined,
+      }));
+      dispatch({
+        type: "SET_NOTIFICATIONS",
+        payload: { notifications: mapped, unreadCount: data.unreadCount },
+      });
+    } catch {
+      // Background fetch failure handled gracefully
+    } finally {
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
+  }, [accessToken]);
+
+  // Connect to SSE stream
+  useEffect(() => {
+    if (!user || !accessToken) return;
+
+    refresh();
+
+    // Setup SSE connection
+    try {
+      const streamUrl = getNotificationStreamUrl();
+      const es = new EventSource(streamUrl, { withCredentials: true });
+      eventSourceRef.current = es;
+
+      es.addEventListener("notification", (event) => {
+        try {
+          const notif = JSON.parse(event.data) as NotificationRecord;
+          const formatted: Notification = {
+            id: notif.id,
+            type: notif.type,
+            title: notif.title,
+            message: notif.message,
+            read: notif.read,
+            createdAt: notif.createdAt,
+            link: notif.link ?? undefined,
+          };
+          dispatch({ type: "ADD_NOTIFICATION", payload: formatted });
+
+          // Pop an inline toast alert for real-time notification
+          toast({
+            type: formatted.type,
+            title: formatted.title,
+            message: formatted.message,
+          });
+        } catch (err) {
+          console.error("SSE parse error:", err);
+        }
+      });
+
+      es.onerror = () => {
+        // Fallback to polling if SSE disconnected
+        es.close();
+      };
+    } catch (err) {
+      console.warn("EventSource not supported or blocked:", err);
+    }
+
+    // Polling backup
+    pollRef.current = setInterval(refresh, POLL_INTERVAL_MS);
+
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [user, accessToken, refresh, toast]);
+
+  const markAsRead = useCallback(async (id: string) => {
+    if (!accessToken) return;
+    dispatch({ type: "MARK_READ", payload: id });
+    try {
+      await apiMarkRead(accessToken, id);
+    } catch {
+      // Ignored if failed
+    }
+  }, [accessToken]);
+
+  const markAllAsRead = useCallback(async () => {
+    if (!accessToken) return;
+    dispatch({ type: "MARK_ALL_READ" });
+    try {
+      await apiMarkAllRead(accessToken);
+    } catch {
+      // Ignored if failed
+    }
+  }, [accessToken]);
+
+  const dismiss = useCallback(async (id: string) => {
+    if (!accessToken) return;
+    dispatch({ type: "REMOVE_NOTIFICATION", payload: id });
+    try {
+      await apiDeleteNotification(accessToken, id);
+    } catch {
+      // Ignored if failed
+    }
+  }, [accessToken]);
 
   const dismissToast = useCallback((id: string) => {
     dispatch({ type: "REMOVE_TOAST", payload: id });

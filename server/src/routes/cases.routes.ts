@@ -1,18 +1,18 @@
-﻿import { Router } from "express";
+import { Router } from "express";
 import { z } from "zod";
+import PDFDocument from "pdfkit";
 import { prisma } from "../db";
 import { requireAuth, AuthedRequest, requireRole } from "../middleware";
+import { notificationService } from "../services/notification.service";
 
 const router = Router();
 
 // ── Schemas ───────────────────────────────────────────────────────
-
 const createCaseSchema = z.object({
   title: z.string().min(2, "Title must be at least 2 characters"),
   description: z.string().optional(),
   status: z.string().optional().default("Active"),
   priority: z.enum(["Low", "Medium", "High", "Critical"]).optional().default("Medium"),
-  // leadUserId is optional: falls back to the authenticated user
   leadUserId: z.string().uuid().optional(),
 });
 
@@ -40,7 +40,6 @@ router.get("/", requireAuth, async (req: AuthedRequest, res) => {
       take: 100,
     });
 
-    // Flatten _count into evidenceCount for convenience
     const payload = cases.map((c) => ({
       ...c,
       evidenceCount: c._count.evidence,
@@ -102,7 +101,6 @@ router.post(
         return res.status(400).json({ error: parsed.error.flatten() });
       }
 
-      // Use provided leadUserId or fall back to the authenticated user
       const leadUserId = parsed.data.leadUserId ?? req.userId!;
 
       const caseRecord = await prisma.case.create({
@@ -130,6 +128,13 @@ router.post(
         },
       });
 
+      await notificationService.emitNotification(req.userId!, {
+        type: "success",
+        title: "Case Created",
+        message: `Created case "${caseRecord.title}".`,
+        link: `/cases/${caseRecord.id}`,
+      });
+
       return res.status(201).json({ ...caseRecord, evidenceCount: 0 });
     } catch (error) {
       console.error("Case creation error:", error);
@@ -140,7 +145,7 @@ router.post(
 
 // ═══════════════════════════════════════════════════════════════════
 // PATCH /cases/:id  — partial update
-// PUT   /cases/:id  — alias (some clients send PUT)
+// PUT   /cases/:id  — alias
 // ═══════════════════════════════════════════════════════════════════
 async function handleUpdate(req: AuthedRequest, res: import("express").Response) {
   try {
@@ -255,7 +260,6 @@ router.get("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
       orderBy: { createdAt: "asc" },
     });
 
-    // Shape mentions into { userId, userName } for the frontend
     type RawMention = { mentionedUser: { id: string; name: string } };
     const shapeMentions = (ms: RawMention[]) =>
       ms.map((m) => ({ userId: m.mentionedUser.id, userName: m.mentionedUser.name }));
@@ -293,7 +297,8 @@ router.post("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
     const comment = await prisma.caseComment.create({
       data: {
         caseId:   req.params["id"] as string,
-        userId:   req.userId!,        content,
+        userId:   req.userId!,
+        content,
         parentId: parentId ?? null,
       },
       include: {
@@ -302,7 +307,6 @@ router.post("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
       },
     });
 
-    // Create mention records
     if (Array.isArray(mentions)) {
       for (const m of mentions) {
         const mentioned = await prisma.user.findFirst({
@@ -311,6 +315,13 @@ router.post("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
         if (mentioned) {
           await prisma.commentMention.create({
             data: { commentId: comment.id, userId: mentioned.id },
+          });
+
+          await notificationService.emitNotification(mentioned.id, {
+            type: "mention",
+            title: "Mentioned in Case",
+            message: `${comment.user.name} mentioned you in a case comment: "${content.slice(0, 50)}${content.length > 50 ? "…" : ""}"`,
+            link: `/cases/${req.params["id"]}`,
           });
         }
       }
@@ -336,6 +347,95 @@ router.post("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
   } catch (error) {
     console.error("Comment create error:", error);
     return res.status(500).json({ error: "Failed to create comment" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /cases/:id/export/pdf — Case Intelligence Summary PDF
+// ═══════════════════════════════════════════════════════════════════
+router.get("/:id/export/pdf", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const id = req.params["id"] as string;
+
+    const caseRecord = await prisma.case.findUnique({
+      where: { id },
+      include: {
+        lead: { select: { name: true, email: true, role: true } },
+        evidence: {
+          orderBy: { createdAt: "desc" },
+          include: { collectedBy: { select: { name: true } } },
+        },
+      },
+    });
+
+    if (!caseRecord) {
+      return res.status(404).json({ error: "Case not found" });
+    }
+
+    const doc = new PDFDocument({ size: "A4", margins: { top: 40, bottom: 40, left: 45, right: 45 } });
+    const buffers: Buffer[] = [];
+
+    doc.on("data", (chunk: Buffer) => buffers.push(chunk));
+    doc.on("end", () => {
+      const pdfData = Buffer.concat(buffers);
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="Case-Summary-${caseRecord.id.slice(0, 8)}.pdf"`,
+      );
+      res.send(pdfData);
+    });
+
+    // Header
+    doc.rect(45, 40, 505, 50).fill("#0f845a");
+    doc.fillColor("#ffffff").fontSize(15).font("Helvetica-Bold")
+       .text("EVICHAIN CASE INTELLIGENCE REPORT", 55, 50, { align: "center" });
+    doc.fontSize(8.5).font("Helvetica")
+       .text(`Case ID: ${caseRecord.id} · Generated ${new Date().toUTCString()}`, 55, 70, { align: "center" });
+
+    let y = 105;
+    doc.fillColor("#0f845a").fontSize(11).font("Helvetica-Bold").text("CASE OVERVIEW", 45, y);
+    doc.strokeColor("#0f845a").lineWidth(1).moveTo(45, y + 14).lineTo(550, y + 14).stroke();
+
+    y += 22;
+    doc.rect(45, y, 505, 60).fillAndStroke("#f4f7f5", "#d1dcd3");
+    doc.fillColor("#141f1c").fontSize(9).font("Helvetica");
+    doc.text(`Title: `, 55, y + 8, { continued: true }).font("Helvetica-Bold").text(caseRecord.title);
+    doc.font("Helvetica").text(`Status: `, 55, y + 22, { continued: true }).font("Helvetica-Bold").text(caseRecord.status);
+    doc.font("Helvetica").text(`Priority: `, 55, y + 36, { continued: true }).font("Helvetica-Bold").text(caseRecord.priority);
+
+    doc.font("Helvetica").text(`Lead Investigator: `, 300, y + 8, { continued: true }).font("Helvetica-Bold").text(`${caseRecord.lead.name} (${caseRecord.lead.role})`);
+    doc.font("Helvetica").text(`Created: `, 300, y + 22, { continued: true }).font("Helvetica-Bold").text(new Date(caseRecord.createdAt).toUTCString());
+    doc.font("Helvetica").text(`Total Evidence: `, 300, y + 36, { continued: true }).font("Helvetica-Bold").text(`${caseRecord.evidence.length} item(s)`);
+
+    y += 75;
+    doc.fillColor("#0f845a").fontSize(11).font("Helvetica-Bold").text("LINKED EVIDENCE REGISTRY", 45, y);
+    doc.strokeColor("#0f845a").lineWidth(1).moveTo(45, y + 14).lineTo(550, y + 14).stroke();
+
+    y += 22;
+    doc.rect(45, y, 505, 18).fillAndStroke("#e8ede9", "#d1dcd3");
+    doc.fillColor("#141f1c").fontSize(8).font("Helvetica-Bold");
+    doc.text("NAME", 52, y + 5);
+    doc.text("TYPE / MIME", 210, y + 5);
+    doc.text("STATUS", 340, y + 5);
+    doc.text("SHA-256 (PREFIX)", 420, y + 5);
+
+    y += 18;
+    for (const ev of caseRecord.evidence) {
+      if (y > 720) { doc.addPage(); y = 45; }
+      doc.rect(45, y, 505, 20).fillAndStroke("#ffffff", "#e8ede9");
+      doc.fillColor("#141f1c").fontSize(7.5).font("Helvetica");
+      doc.text(ev.name.length > 25 ? `${ev.name.slice(0, 25)}…` : ev.name, 52, y + 6);
+      doc.text(ev.mimeType, 210, y + 6);
+      doc.font("Helvetica-Bold").text(ev.status, 340, y + 6);
+      doc.font("Courier").text(ev.sha256.slice(0, 14) + "…", 420, y + 6);
+      y += 20;
+    }
+
+    doc.end();
+  } catch (error) {
+    console.error("Case PDF export error:", error);
+    return res.status(500).json({ error: "Failed to generate case PDF report" });
   }
 });
 
