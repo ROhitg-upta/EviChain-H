@@ -4,6 +4,7 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import * as archiver from "archiver";
 import { prisma } from "../db";
+
 import { requireAuth, AuthedRequest, requireRole } from "../middleware";
 
 
@@ -270,8 +271,12 @@ router.post("/bulk-download", requireAuth, async (req: AuthedRequest, res) => {
       return res.status(404).json({ error: "No matching evidence items found" });
     }
 
-    const archive = (archiver as unknown as (format: string, opt: object) => archiver.Archiver)("zip", { zlib: { level: 6 } });
+    const ZipConstructor = (archiver as any).ZipArchive || (archiver as any).default || archiver;
+    const archive = typeof ZipConstructor === "function" && ZipConstructor.prototype?.pipe
+      ? new ZipConstructor({ zlib: { level: 6 } })
+      : (archiver as any)("zip", { zlib: { level: 6 } });
     const dateStamp = new Date().toISOString().slice(0, 10);
+
 
 
     res.setHeader("Content-Type", "application/zip");
