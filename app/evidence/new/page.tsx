@@ -4,7 +4,8 @@ import {
   ChangeEvent, DragEvent, FormEvent, useEffect, useRef, useState,
 } from "react";
 import { useAuth } from "../../auth-context";
-import { getCases, uploadEvidence, type CaseRecord, type UploadEvidenceResult } from "@/lib/api";
+import { getCases, uploadEvidence, bulkUploadEvidence, type CaseRecord, type UploadEvidenceResult, type EvidenceRecord } from "@/lib/api";
+
 
 const ACCEPTED_MIME = [
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/tiff",
@@ -46,16 +47,22 @@ export default function NewEvidencePage() {
   const [tags, setTags] = useState("");
 
   // Upload state
+  const [uploadMode, setUploadMode] = useState<"single" | "batch">("single");
   const [progress, setProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<UploadEvidenceResult | null>(null);
+  const [batchFiles, setBatchFiles] = useState<File[]>([]);
+  const [batchResult, setBatchResult] = useState<{ message: string; count: number; items: EvidenceRecord[] } | null>(null);
+
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const batchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!authLoading && !user) window.location.replace("/login");
   }, [authLoading, user]);
+
 
   useEffect(() => {
     if (!accessToken) return;
@@ -103,7 +110,7 @@ export default function NewEvidencePage() {
       fd.append("name", name.trim() || file.name);
       fd.append("type", fileExt(file.name));
       fd.append("ownerOrg", ownerOrg);
-      fd.append("caseId", caseId);
+      if (caseId.trim()) fd.append("caseId", caseId.trim());
       if (description.trim()) fd.append("description", description.trim());
       if (tags.trim()) fd.append("tags", tags.trim());
 
@@ -116,16 +123,40 @@ export default function NewEvidencePage() {
     }
   }
 
+  async function handleBatchSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (batchFiles.length === 0 || !accessToken) return;
+
+    setUploading(true);
+    setProgress(0);
+    setError("");
+
+    try {
+      const res = await bulkUploadEvidence(accessToken, batchFiles, {
+        caseId: caseId.trim() || undefined,
+        ownerOrg: ownerOrg.trim() || undefined,
+      });
+      setBatchResult(res);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Batch upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   function resetForm() {
     setFile(null);
+    setBatchFiles([]);
     setName("");
     setCaseId("");
     setDescription("");
     setTags("");
     setProgress(0);
     setResult(null);
+    setBatchResult(null);
     setError("");
   }
+
 
   if (authLoading) return <main className="evidence-shell"><p className="ev-loading">Loading…</p></main>;
 
@@ -185,6 +216,44 @@ export default function NewEvidencePage() {
     );
   }
 
+  // ── Batch success screen ──────────────────────────────────────────
+  if (batchResult) {
+    return (
+      <main className="evidence-shell">
+        <header className="ev-topbar">
+          <a className="ev-brand" href="/"><span className="brand-mark">E</span>
+            <span><strong>EviChain</strong><small>Evidence workspace</small></span>
+          </a>
+        </header>
+        <div className="upload-success-card" role="main" aria-live="polite">
+          <div className="upload-success-icon" aria-hidden="true">✓</div>
+          <h1>Batch upload complete</h1>
+          <p className="ev-page-sub">{batchResult.count} evidence files registered with SHA-256 fingerprints.</p>
+          <div style={{ maxHeight: 320, overflowY: "auto", margin: "20px 0", textAlign: "left" }}>
+            {batchResult.items.map((ev) => (
+              <div key={ev.id} style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+
+                <div>
+                  <strong>{ev.name}</strong>
+                  <div style={{ fontSize: 11, color: "var(--muted)" }}>{ev.sha256.slice(0, 16)}… · {fmtBytes(ev.sizeBytes)}</div>
+                </div>
+                <a className="button button-secondary small-button" href={`/evidence/${ev.id}`}>View</a>
+              </div>
+            ))}
+          </div>
+          <div className="upload-success-actions">
+            <a className="button button-primary" href="/evidence">
+              View evidence registry →
+            </a>
+            <button className="button button-secondary" type="button" onClick={resetForm}>
+              Upload more files
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   // ── Upload form ──────────────────────────────────────────────────
   return (
     <main className="evidence-shell">
@@ -195,9 +264,10 @@ export default function NewEvidencePage() {
         </a>
         <nav className="ev-nav">
           <a href="/evidence">← Registry</a>
-          <a href="/case">Cases</a>
+          <a href="/cases">Cases</a>
         </nav>
       </header>
+
 
       <div className="page-header">
         <div>
@@ -218,6 +288,118 @@ export default function NewEvidencePage() {
 
       {casesError && <p className="ev-warning">{casesError}</p>}
 
+      <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        <button
+          type="button"
+          className={`button ${uploadMode === "single" ? "button-primary" : "button-secondary"} small-button`}
+          onClick={() => { setUploadMode("single"); setError(""); }}
+        >
+          Single file upload
+        </button>
+        <button
+          type="button"
+          className={`button ${uploadMode === "batch" ? "button-primary" : "button-secondary"} small-button`}
+          onClick={() => { setUploadMode("batch"); setError(""); }}
+        >
+          Batch upload (multi-file)
+        </button>
+      </div>
+
+      {uploadMode === "batch" ? (
+        <form
+          className="upload-form"
+          onSubmit={handleBatchSubmit}
+          aria-label="Batch upload evidence form"
+        >
+          <div
+            className={`file-dropzone${batchFiles.length > 0 ? " file-dropzone--filled" : ""}`}
+            onClick={() => batchInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") batchInputRef.current?.click(); }}
+          >
+            <input
+              ref={batchInputRef}
+              type="file"
+              accept={ACCEPTED_MIME}
+              multiple
+              className="sr-only"
+              onChange={(e) => {
+                const fl = Array.from(e.target.files ?? []);
+                if (fl.length > 20) {
+                  setError("Maximum 20 files allowed per batch.");
+                  setBatchFiles(fl.slice(0, 20));
+                } else {
+                  setError("");
+                  setBatchFiles(fl);
+                }
+              }}
+            />
+            {batchFiles.length > 0 ? (
+              <div style={{ textAlign: "center" }}>
+                <p className="file-dropzone-prompt">
+                  <strong>{batchFiles.length} files selected</strong>
+                </p>
+                <p className="file-dropzone-sub">
+                  Total size: {fmtBytes(batchFiles.reduce((acc, f) => acc + f.size, 0))}
+                </p>
+                <span className="file-dropzone-change">Click to change selection</span>
+              </div>
+            ) : (
+              <div style={{ textAlign: "center" }}>
+                <span className="file-dropzone-icon" aria-hidden="true">↑</span>
+                <p className="file-dropzone-prompt">
+                  <strong>Choose files</strong> or drag and drop here
+                </p>
+                <p className="file-dropzone-sub">Upload up to 20 files in a single atomic transaction</p>
+              </div>
+            )}
+          </div>
+
+          <div className="upload-fields">
+            <div className="ev-form-row">
+              <div className="field">
+                <label htmlFor="batch-case">Associated case (optional)</label>
+                <select
+                  id="batch-case"
+                  value={caseId}
+                  onChange={(e) => setCaseId(e.target.value)}
+                  className="input"
+                >
+                  <option value="">None — unassigned</option>
+                  {cases.map((c) => (
+                    <option key={c.id} value={c.id}>{c.title}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="batch-org">Owner organisation *</label>
+                <input
+                  id="batch-org"
+                  type="text"
+                  value={ownerOrg}
+                  onChange={(e) => setOwnerOrg(e.target.value)}
+                  className="input"
+                  required
+                />
+              </div>
+            </div>
+          </div>
+
+          {error && <div className="error-message" role="alert">{error}</div>}
+
+          <div className="upload-form-actions">
+            <button
+              className="button button-primary"
+              type="submit"
+              disabled={uploading || !canEdit || batchFiles.length === 0}
+            >
+              {uploading ? <span className="loading-spinner">Uploading batch…</span> : `Register ${batchFiles.length} files`}
+            </button>
+            <a className="button button-secondary" href="/evidence">Cancel</a>
+          </div>
+        </form>
+      ) : (
       <form
         className="upload-form"
         onSubmit={handleSubmit}
@@ -225,6 +407,7 @@ export default function NewEvidencePage() {
         noValidate
       >
         {/* Drop zone */}
+
         <div
           className={`file-dropzone${dragging ? " file-dropzone--over" : ""}${file ? " file-dropzone--filled" : ""}`}
           onDrop={handleDrop}
@@ -406,6 +589,8 @@ export default function NewEvidencePage() {
           </p>
         )}
       </form>
+      )}
     </main>
+
   );
 }

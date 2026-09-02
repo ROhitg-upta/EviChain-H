@@ -77,7 +77,7 @@ export default function PublicVerifyPage() {
         <nav className="case-nav" aria-label="Primary navigation">
           <a href="/">Dashboard</a>
           <a href="/evidence">Registry</a>
-          <a href="/case">Cases</a>
+          <a href="/cases">Cases</a>
         </nav>
       </header>
 
@@ -135,8 +135,9 @@ export default function PublicVerifyPage() {
         <form className="verify-card" onSubmit={handleFileSubmit} aria-label="Verify file by upload">
           <h2>Upload the file to verify</h2>
           <p className="verify-card-desc">
-            Your file stays in your browser. SHA-256 is computed on our server
-            from the uploaded bytes and checked against the registry.
+            Select the original file. EviChain computes its SHA-256 fingerprint
+            and checks it against every registered evidence record. The file is
+            sent to our server for verification — it is never stored.
           </p>
           <label htmlFor="verify-file-pick" className="ev-file-pick-label">
             <input
@@ -204,7 +205,7 @@ export default function PublicVerifyPage() {
           >
             {result.status === "loading"
               ? <span className="loading-spinner">Checking…</span>
-              : "Check hash"}
+              : "Verify hash"}
           </button>
         </form>
       </div>

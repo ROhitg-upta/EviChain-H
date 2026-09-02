@@ -4,9 +4,10 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "../../auth-context";
+import NotificationBell from "../../components/notification-bell";
 
 const NAV_ITEMS = [
-  { href: "/",               icon: "⊞", label: "Dashboard"     },
+  { href: "/dashboard",      icon: "⊞", label: "Dashboard"     },
   { href: "/evidence",       icon: "◈", label: "Evidence"      },
   { href: "/cases",          icon: "▣", label: "Cases"         },
   { href: "/audit",          icon: "≡", label: "Audit logs"    },
@@ -28,10 +29,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     <div className="dash-root">
       <aside className="dash-sidebar" aria-label="Sidebar navigation">
         <div className="dash-sidebar-top">
-          <Link href="/" className="dash-logo" aria-label="EviChain home">
-            <span className="brand-mark" aria-hidden="true">E</span>
-            <span className="dash-logo-name">EviChain</span>
-          </Link>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingRight: "var(--space-2, 8px)" }}>
+            <Link href="/" className="dash-logo" aria-label="EviChain home">
+              <span className="brand-mark" aria-hidden="true">E</span>
+              <span className="dash-logo-name">EviChain</span>
+            </Link>
+            <NotificationBell />
+          </div>
 
           <nav className="dash-nav" aria-label="Main navigation">
             {NAV_ITEMS.map(({ href, icon, label }) => (

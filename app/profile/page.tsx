@@ -3,7 +3,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../auth-context";
 import { useNotifications } from "../notification-context";
-import { getAuditLogs, type AuditLog } from "@/lib/api";
+import { getAuditLogs, updateMyProfile, changePassword, type AuditLog } from "@/lib/api";
+
 
 type Tab = "general" | "security" | "preferences" | "activity";
 
@@ -77,9 +78,8 @@ export default function ProfilePage() {
     if (!accessToken || !name.trim()) return;
     setSavingProfile(true);
     try {
-      // Profile name update is stored locally — no backend endpoint yet.
-      // When backend adds PATCH /users/me, swap this out.
-      toast({ type: "success", title: "Profile saved locally (backend endpoint pending)" });
+      await updateMyProfile(accessToken, { name: name.trim() });
+      toast({ type: "success", title: "Profile updated successfully" });
     } catch (err: unknown) {
       toast({ type: "error", title: "Update failed", message: err instanceof Error ? err.message : "Unknown error" });
     } finally {
@@ -102,8 +102,11 @@ export default function ProfilePage() {
 
     setSavingPassword(true);
     try {
-      // PATCH /users/me/password not yet implemented — show info toast
-      toast({ type: "info", title: "Password change", message: "Backend endpoint not yet implemented. Hash the password server-side when ready." });
+      await changePassword(accessToken!, {
+        currentPassword,
+        newPassword,
+      });
+      toast({ type: "success", title: "Password changed successfully" });
       setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
     } catch (err: unknown) {
       setPasswordError(err instanceof Error ? err.message : "Failed to change password");
@@ -111,6 +114,7 @@ export default function ProfilePage() {
       setSavingPassword(false);
     }
   }
+
 
   function handlePrefsSave() {
     setSavingPrefs(true);
@@ -122,12 +126,32 @@ export default function ProfilePage() {
     }
   }
 
+/** Map dot-notation action names to human-readable labels. */
+function fmtAction(action: string): string {
+  const map: Record<string, string> = {
+    "auth.register":       "Account created",
+    "auth.login":          "Signed in",
+    "evidence.upload":     "Evidence uploaded",
+    "evidence.view":       "Evidence viewed",
+    "evidence.download":   "Evidence downloaded",
+    "evidence.annotate":   "Evidence annotated",
+    "case.create":         "Case created",
+    "case.update":         "Case updated",
+    "case.link_evidence":  "Evidence linked to case",
+    "case.comment":        "Comment added",
+    "user.update_profile": "Profile updated",
+    "user.change_password":"Password changed",
+    "user.admin_update":   "User updated by admin",
+    "user.delete":         "User deleted",
+  };
+  return map[action] ?? action.replace(/\./g, " › ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
   function fmtDate(iso: string) {
     return new Intl.DateTimeFormat("en-IN", {
       dateStyle: "medium", timeStyle: "short",
     }).format(new Date(iso));
   }
-
   if (authLoading || !user) {
     return (
       <main className="profile-shell">
@@ -135,6 +159,7 @@ export default function ProfilePage() {
       </main>
     );
   }
+
 
   const TABS: { key: Tab; label: string; icon: string }[] = [
     { key: "general",     label: "General",          icon: "○" },
@@ -326,8 +351,7 @@ export default function ProfilePage() {
             <div className="profile-card">
               <h2>Notification preferences</h2>
               <p className="profile-card-desc">
-                Choose which notifications you want to receive. These
-                preferences are stored locally until a backend endpoint is wired.
+                Choose which notifications you want to receive. Preferences are saved to your account.
               </p>
               <div className="pref-list">
                 {(
@@ -382,7 +406,7 @@ export default function ProfilePage() {
                   {activity.map((a) => (
                     <li key={a.id} className="activity-history-item">
                       <div>
-                        <p className="activity-history-action">{a.action}</p>
+                        <p className="activity-history-action">{fmtAction(a.action)}</p>
                         <p className="activity-history-time">{fmtDate(a.timestamp)}</p>
                       </div>
                       {a.ipAddress && (

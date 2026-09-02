@@ -1160,3 +1160,66 @@ export async function downloadEvidenceCsv(
   return res.blob();
 }
 
+// ─── Users API ────────────────────────────────────────────────────────────────
+
+export interface UserRecord {
+  id: string;
+  email: string;
+  name: string;
+  role: "ADMINISTRATOR" | "INVESTIGATOR" | "AUDITOR" | "CUSTODIAN";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getAllUsers(token: string): Promise<UserRecord[]> {
+  const res = await apiFetch(`${API_URL}/users`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to fetch users");
+  }
+
+  return safeJson<UserRecord[]>(res);
+}
+
+export async function updateUserRole(
+
+  token: string,
+  id: string,
+  role: "ADMINISTRATOR" | "INVESTIGATOR" | "AUDITOR" | "CUSTODIAN",
+): Promise<UserRecord> {
+  const res = await apiFetch(`${API_URL}/users/${id}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ role }),
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to update user role");
+  }
+
+  return safeJson<UserRecord>(res);
+}
+
+export async function deleteUser(token: string, id: string): Promise<{ message: string }> {
+  const res = await apiFetch(`${API_URL}/users/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: string }>(res);
+    throw new Error(e.error || "Failed to delete user");
+  }
+
+  return safeJson(res);
+}
+
+
+

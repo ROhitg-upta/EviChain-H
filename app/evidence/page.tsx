@@ -2,7 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth-context";
-import { getCases, getEvidence, type CaseRecord, type EvidenceRecord } from "@/lib/api";
+import {
+  getCases, getEvidence, bulkDownloadEvidence, downloadEvidenceCsv,
+  type CaseRecord, type EvidenceRecord,
+} from "@/lib/api";
+
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -65,10 +69,78 @@ export default function EvidenceListPage() {
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"date" | "name" | "type" | "case">("date");
 
+  // Bulk operations & Export
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [downloadingZip, setDownloadingZip] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
+
+  function toggleSelect(id: string, e?: React.MouseEvent) {
+    if (e) e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((r) => r.id)));
+    }
+  }
+
+  async function handleBulkDownload() {
+    if (!accessToken || selectedIds.size === 0) return;
+    setDownloadingZip(true);
+    try {
+      const blob = await bulkDownloadEvidence(accessToken, Array.from(selectedIds));
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `evidence-bundle-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Bulk download error:", err);
+    } finally {
+      setDownloadingZip(false);
+    }
+  }
+
+  async function handleExportCsv() {
+    if (!accessToken) return;
+    setExportingCsv(true);
+    try {
+      const blob = await downloadEvidenceCsv(accessToken, {
+        status: statusFilter !== "ALL" ? statusFilter : undefined,
+        caseId: caseFilter !== "ALL" ? caseFilter : undefined,
+        type: mimeFilter !== "ALL" ? mimeFilter : undefined,
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `evidence-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("CSV export error:", err);
+    } finally {
+      setExportingCsv(false);
+    }
+  }
+
   // Redirect if not authed
   useEffect(() => {
     if (!authLoading && !user) window.location.replace("/login");
   }, [authLoading, user]);
+
 
   // Fetch data
   useEffect(() => {
@@ -133,7 +205,7 @@ export default function EvidenceListPage() {
           <a href="/evidence/new" className="button button-primary small-button">
             + Upload evidence
           </a>
-          <a href="/case">Cases</a>
+          <a href="/cases">Cases</a>
           <a href="/verify">Public verify</a>
           {user && (
             <span className="ev-user-badge" aria-label={`Signed in as ${user.name}`}>
@@ -153,7 +225,21 @@ export default function EvidenceListPage() {
             {records.length} record{records.length !== 1 ? "s" : ""} registered
           </p>
         </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            className="button button-secondary small-button"
+            onClick={handleExportCsv}
+            disabled={exportingCsv}
+          >
+            {exportingCsv ? "Exporting…" : "Export CSV ↓"}
+          </button>
+          <a href="/evidence/new" className="button button-primary small-button">
+            + Upload evidence
+          </a>
+        </div>
       </div>
+
 
       {/* Stats strip */}
       <section className="ev-stats-strip" aria-label="Evidence summary">
@@ -237,6 +323,30 @@ export default function EvidenceListPage() {
         <div className="error-message" role="alert">{fetchError}</div>
       )}
 
+      {/* Bulk action banner */}
+      {selectedIds.size > 0 && (
+        <div className="ev-info-banner" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, background: "#f0fdf4", borderColor: "#bbf7d0", color: "#166534" }}>
+          <span><strong>{selectedIds.size}</strong> evidence item{selectedIds.size !== 1 ? "s" : ""} selected</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              className="button button-primary small-button"
+              onClick={handleBulkDownload}
+              disabled={downloadingZip}
+            >
+              {downloadingZip ? "Generating ZIP…" : `Download Bundle (${selectedIds.size}) ↓`}
+            </button>
+            <button
+              type="button"
+              className="button button-secondary small-button"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Deselect all
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="evidence-table panel">
         {fetching ? (
@@ -255,6 +365,14 @@ export default function EvidenceListPage() {
             <table aria-label="Evidence records">
               <thead>
                 <tr>
+                  <th scope="col" style={{ width: 36, paddingLeft: 12 }}>
+                    <input
+                      type="checkbox"
+                      aria-label="Select all"
+                      checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
                   <th scope="col">Evidence</th>
                   <th scope="col">Case</th>
                   <th scope="col">Uploader</th>
@@ -270,13 +388,21 @@ export default function EvidenceListPage() {
                   <tr
                     key={r.id}
                     onClick={() => (window.location.href = `/evidence/${r.id}`)}
-                    className="ev-table-row"
+                    className={`ev-table-row ${selectedIds.has(r.id) ? "ev-table-row--selected" : ""}`}
                     tabIndex={0}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") window.location.href = `/evidence/${r.id}`;
                     }}
                     aria-label={`View evidence ${r.name}`}
                   >
+                    <td style={{ width: 36, paddingLeft: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${r.name}`}
+                        checked={selectedIds.has(r.id)}
+                        onChange={() => toggleSelect(r.id)}
+                      />
+                    </td>
                     <td>
                       <div className="file-cell">
                         <span className="ev-mime-badge" aria-hidden="true">
@@ -288,6 +414,7 @@ export default function EvidenceListPage() {
                         </div>
                       </div>
                     </td>
+
                     <td>{r.case?.title ?? <span className="ev-muted">—</span>}</td>
                     <td>{r.collectedBy?.name ?? <span className="ev-muted">—</span>}</td>
                     <td>

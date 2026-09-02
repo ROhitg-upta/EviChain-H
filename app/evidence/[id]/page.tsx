@@ -3,8 +3,16 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../auth-context";
 import {
-  getEvidenceById, downloadEvidence, verifyByHash,
-  type EvidenceRecord, type CustodyEvent, type PublicVerifyResult,
+  getEvidenceById,
+  downloadEvidence,
+  verifyByHash,
+  downloadEvidenceCertificate,
+  transferEvidenceCustody,
+  getAllUsers,
+  type EvidenceRecord,
+  type CustodyEvent,
+  type PublicVerifyResult,
+  type UserRecord,
 } from "@/lib/api";
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -28,6 +36,17 @@ async function browserSha256(file: File): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+function triggerBlobDownload(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
 }
 
 // Map custody event action → display label, colour class, and aria description
@@ -72,11 +91,24 @@ export default function EvidenceDetailPage({
   const [downloadState, setDownloadState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [downloadError, setDownloadError] = useState("");
 
+  // PDF Certificate Download
+  const [certDownloading, setCertDownloading] = useState(false);
+
+  // Custody Transfer Modal
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [usersList, setUsersList] = useState<UserRecord[]>([]);
+  const [transferToUserId, setTransferToUserId] = useState("");
+  const [transferToLocation, setTransferToLocation] = useState("");
+  const [transferNote, setTransferNote] = useState("");
+  const [transferring, setTransferring] = useState(false);
+  const [transferError, setTransferError] = useState("");
+  const [transferSuccess, setTransferSuccess] = useState("");
+
   useEffect(() => {
     if (!authLoading && !user) window.location.replace("/login");
   }, [authLoading, user]);
 
-  useEffect(() => {
+  function loadEvidence() {
     if (!accessToken) return;
     setFetching(true);
     getEvidenceById(accessToken, params.id)
@@ -85,7 +117,18 @@ export default function EvidenceDetailPage({
         setFetchError(err instanceof Error ? err.message : "Failed to load record"),
       )
       .finally(() => setFetching(false));
+  }
+
+  useEffect(() => {
+    loadEvidence();
   }, [accessToken, params.id]);
+
+  // Load users when opening transfer modal
+  useEffect(() => {
+    if (showTransferModal && accessToken && usersList.length === 0) {
+      getAllUsers(accessToken).then(setUsersList).catch(() => {});
+    }
+  }, [showTransferModal, accessToken, usersList.length]);
 
   async function handleClientVerify(e: FormEvent) {
     e.preventDefault();
@@ -120,9 +163,47 @@ export default function EvidenceDetailPage({
     try {
       await downloadEvidence(accessToken, record.id);
       setDownloadState("done");
+      loadEvidence();
     } catch (err: unknown) {
       setDownloadState("error");
       setDownloadError(err instanceof Error ? err.message : "Download failed");
+    }
+  }
+
+  async function handleDownloadCertificate() {
+    if (!accessToken || !record) return;
+    setCertDownloading(true);
+    try {
+      const blob = await downloadEvidenceCertificate(accessToken, record.id);
+      triggerBlobDownload(blob, `Certificate-${record.name}-${record.sha256.slice(0, 8)}.pdf`);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCertDownloading(false);
+    }
+  }
+
+  async function handleTransferSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken || !record || !transferToUserId) return;
+    setTransferring(true);
+    setTransferError("");
+    try {
+      await transferEvidenceCustody(accessToken, record.id, {
+        toUserId: transferToUserId,
+        toLocation: transferToLocation.trim() || undefined,
+        note: transferNote.trim() || undefined,
+      });
+      setTransferSuccess("Custody successfully transferred!");
+      setShowTransferModal(false);
+      setTransferNote("");
+      setTransferToLocation("");
+      loadEvidence();
+      setTimeout(() => setTransferSuccess(""), 4000);
+    } catch (err: unknown) {
+      setTransferError(err instanceof Error ? err.message : "Transfer failed");
+    } finally {
+      setTransferring(false);
     }
   }
 
@@ -146,7 +227,8 @@ export default function EvidenceDetailPage({
     return (
       <main className="evidence-shell">
         <header className="ev-topbar">
-          <a className="ev-brand" href="/"><span className="brand-mark">E</span>
+          <a className="ev-brand" href="/">
+            <span className="brand-mark">E</span>
             <span><strong>EviChain</strong><small>Evidence workspace</small></span>
           </a>
         </header>
@@ -154,52 +236,82 @@ export default function EvidenceDetailPage({
           {fetchError || "Evidence record not found."}
         </div>
         <a className="button button-secondary" style={{ marginTop: 16 }} href="/evidence">
-          ← Back to registry
+          ← Back to evidence list
         </a>
       </main>
     );
   }
 
-  const statusCls = record.status.toLowerCase();
   const events: CustodyEvent[] = record.custodyEvents ?? [];
 
-  // ── Main render ───────────────────────────────────────────────────
+  // ── Main render ──────────────────────────────────────────────────
   return (
     <main className="evidence-shell">
+      {/* Top bar */}
       <header className="ev-topbar">
-        <a className="ev-brand" href="/">
+        <a className="ev-brand" href="/" aria-label="EviChain home">
           <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Evidence workspace</small></span>
+          <span>
+            <strong>EviChain</strong>
+            <small>Evidence registry</small>
+          </span>
         </a>
         <nav className="ev-nav" aria-label="Primary navigation">
           <a href="/evidence">← Registry</a>
-          <a href="/case">Cases</a>
-          {user && <span className="operator" aria-label={user.name}>{user.initials}</span>}
+          <a href="/cases">Cases</a>
+          <a href="/verify">Public verify</a>
+          {user && (
+            <span className="ev-user-badge">
+              <span className="operator" aria-hidden="true">{user.initials}</span>
+              <span>{user.name}</span>
+            </span>
+          )}
         </nav>
       </header>
 
       {/* Page title */}
       <div className="page-header">
         <div>
-          <p className="eyebrow">EVIDENCE RECORD</p>
+          <p className="eyebrow">EVIDENCE RECORD · {record.id.slice(0, 8).toUpperCase()}</p>
           <h1>{record.name}</h1>
           <div className="ev-detail-chips">
-            <span className={`status ${statusCls}`} aria-label={`Status: ${record.status}`}>
-              <span aria-hidden="true" />
-              {record.status.charAt(0) + record.status.slice(1).toLowerCase()}
+            <span className={`ev-status-chip ev-status--${record.status.toLowerCase()}`}>
+              {record.status}
             </span>
             <span className="ev-chip">{record.type}</span>
             <span className="ev-chip">{record.ownerOrg}</span>
             {record.case && (
-              <a className="ev-chip ev-chip--link" href="/case">
+              <a className="ev-chip ev-chip--link" href={record.caseId ? `/cases/${record.caseId}` : "/cases"}>
                 {record.case.title}
               </a>
             )}
           </div>
         </div>
-        <div className="ev-header-actions">
+        <div className="ev-header-actions" style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           <button
             className="button button-secondary small-button"
+            onClick={handleDownloadCertificate}
+            disabled={certDownloading}
+            title="Download court-admissible forensic PDF Certificate"
+          >
+            {certDownloading ? "Generating PDF…" : "📄 Hash Certificate (PDF)"}
+          </button>
+          <button
+            className="button button-secondary small-button"
+            onClick={() => setShowTransferModal(true)}
+            title="Transfer custody to another investigator or custodian"
+          >
+            ⇄ Transfer custody
+          </button>
+          <a
+            className="button button-secondary small-button"
+            href={`/evidence/${record.id}/annotate`}
+            title="Annotate evidence image"
+          >
+            ✏ Annotate
+          </a>
+          <button
+            className="button button-primary small-button"
             onClick={handleDownload}
             disabled={downloadState === "loading"}
             aria-label="Download this evidence and log custody event"
@@ -213,6 +325,11 @@ export default function EvidenceDetailPage({
         </div>
       </div>
 
+      {transferSuccess && (
+        <div className="ev-info-banner" role="status" style={{ background: "#ecfdf5", borderColor: "#a7f3d0", color: "#065f46" }}>
+          ✓ {transferSuccess}
+        </div>
+      )}
       {downloadError && (
         <div className="error-message" role="alert">{downloadError}</div>
       )}
@@ -378,6 +495,9 @@ export default function EvidenceDetailPage({
                           }).format(new Date(ev.timestamp))}
                         </small>
                         <p>{ev.note}</p>
+                        {ev.toLocation && (
+                          <small style={{ color: "var(--muted)" }}>Location: {ev.toLocation}</small>
+                        )}
                       </div>
                     </li>
                   );
@@ -387,6 +507,79 @@ export default function EvidenceDetailPage({
           </div>
         </div>
       </div>
+
+      {/* Custody Transfer Modal */}
+      {showTransferModal && (
+        <div className="modal-backdrop" style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div className="modal-content" style={{ background: "white", padding: 24, borderRadius: 8, maxWidth: 480, width: "90%" }}>
+            <h2 style={{ marginTop: 0, marginBottom: 8 }}>Transfer Custody</h2>
+            <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
+              Transfer formal custody of <strong>{record.name}</strong> to another operator. An immutable custody event will be recorded.
+            </p>
+            {transferError && <div className="error-message" style={{ marginBottom: 12 }}>{transferError}</div>}
+            <form onSubmit={handleTransferSubmit}>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Recipient Operator *</label>
+                <select
+                  className="input"
+                  value={transferToUserId}
+                  onChange={(e) => setTransferToUserId(e.target.value)}
+                  required
+                  style={{ width: "100%" }}
+                >
+                  <option value="">Select recipient operator…</option>
+                  {usersList
+                    .filter((u) => u.id !== user?.id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.role}) — {u.email}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Destination Location</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={transferToLocation}
+                  onChange={(e) => setTransferToLocation(e.target.value)}
+                  placeholder="e.g. Evidence Locker B-14, Forensics Lab 2"
+                  style={{ width: "100%" }}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 18 }}>
+                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Custody Transfer Note</label>
+                <textarea
+                  className="input"
+                  value={transferNote}
+                  onChange={(e) => setTransferNote(e.target.value)}
+                  placeholder="Reason for transfer, condition of evidence, or transfer protocol..."
+                  rows={3}
+                  style={{ width: "100%" }}
+                />
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={() => { setShowTransferModal(false); setTransferError(""); }}
+                  disabled={transferring}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="button button-primary"
+                  disabled={transferring || !transferToUserId}
+                >
+                  {transferring ? "Transferring…" : "Confirm Transfer"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

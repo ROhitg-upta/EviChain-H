@@ -5,6 +5,10 @@ import "./components.css";
 import "./globals.css";
 import { AuthProvider } from "./auth-context";
 import { NotificationProvider } from "./notification-context";
+import ToastContainer from "./components/toast-container";
+import CommandPalette from "./components/command-palette";
+import InstallPWAPrompt from "./components/install-pwa-prompt";
+
 
 const inter = Inter({
   subsets: ["latin"],
@@ -53,9 +57,14 @@ export default function RootLayout({
         <AuthProvider>
           <NotificationProvider>
             {children}
+            <ToastContainer />
+            <CommandPalette />
+            <InstallPWAPrompt />
           </NotificationProvider>
+
         </AuthProvider>
       </body>
     </html>
   );
 }
+

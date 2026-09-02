@@ -53,7 +53,7 @@ export default function MobileLayout({ children }: { children: ReactNode }) {
 
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         {[
-          { href: "/",          icon: "⊞", label: "Home"     },
+          { href: "/mobile",    icon: "⊞", label: "Home"     },
           { href: "/evidence",  icon: "◈", label: "Evidence" },
           { href: "/cases",     icon: "▣", label: "Cases"    },
           { href: "/profile",   icon: "○", label: "Profile"  },

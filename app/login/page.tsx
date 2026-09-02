@@ -9,7 +9,7 @@ export default function LoginPage() {
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
   const [name, setName]         = useState("");
-  const [role, setRole]         = useState<"Administrator" | "Investigator" | "Auditor">("Investigator");
+  const [role, setRole]         = useState<"Administrator" | "Investigator" | "Auditor" | "Custodian">("Investigator");
   const [error, setError]       = useState("");
   const [loading, setLoading]   = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -33,13 +33,14 @@ export default function LoginPage() {
       } else {
         await signUp(email, password, name, role);
       }
-      window.location.href = "/";
+      window.location.href = "/dashboard";
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
       setLoading(false);
     }
   }
+
 
   if (user) {
     return (
@@ -167,14 +168,16 @@ export default function LoginPage() {
                 className="input"
                 value={role}
                 onChange={(e) =>
-                  setRole(e.target.value as "Administrator" | "Investigator" | "Auditor")
+                  setRole(e.target.value as "Administrator" | "Investigator" | "Auditor" | "Custodian")
                 }
                 suppressHydrationWarning
               >
                 <option value="Administrator">Administrator</option>
                 <option value="Investigator">Investigator</option>
+                <option value="Custodian">Custodian (evidence storage)</option>
                 <option value="Auditor">Auditor (read-only)</option>
               </select>
+
             </div>
           )}
 

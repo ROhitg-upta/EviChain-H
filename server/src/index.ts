@@ -18,9 +18,11 @@ const app = express();
 
 const allowedOrigins = [
   process.env.CLIENT_URL,
+  process.env.CORS_ORIGIN,
   "http://localhost:3000",
   "http://127.0.0.1:3000",
 ].filter(Boolean) as string[];
+
 
 app.use(
   cors({

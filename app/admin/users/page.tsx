@@ -2,16 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "../../auth-context";
+import { useNotifications } from "../../notification-context";
+import { getAllUsers, updateUserRole, type UserRecord } from "@/lib/api";
 
-type UserRecord = {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-  createdAt: string;
-};
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
 const ROLE_CLASS: Record<string, string> = {
   ADMINISTRATOR: "case-status--active",
@@ -26,8 +20,10 @@ function fmtDate(iso: string) {
 
 export default function AdminUsersPage() {
   const { user, loading: authLoading, accessToken } = useAuth();
+  const { toast } = useNotifications();
 
   const [users, setUsers]       = useState<UserRecord[]>([]);
+
   const [fetching, setFetching] = useState(true);
   const [error, setError]       = useState("");
   const [search, setSearch]     = useState("");
@@ -41,21 +37,15 @@ export default function AdminUsersPage() {
   useEffect(() => {
     if (!accessToken) return;
     setFetching(true);
-    fetch(`${API_URL}/admin/users`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error("Failed to fetch users");
-        return res.json() as Promise<UserRecord[]>;
-      })
+    getAllUsers(accessToken)
       .then(setUsers)
       .catch((err: unknown) => {
-        // endpoint may not exist yet — show placeholder
         setError(err instanceof Error ? err.message : "Failed to load users");
         setUsers([]);
       })
       .finally(() => setFetching(false));
   }, [accessToken]);
+
 
   const filtered = users.filter((u) => {
     const q = search.trim().toLowerCase();
@@ -97,12 +87,11 @@ export default function AdminUsersPage() {
       </div>
 
       {error && (
-        <div className="ev-info-banner" role="status">
-          {error.includes("Failed to fetch users")
-            ? "The /admin/users endpoint is not yet implemented on the backend. Showing placeholder UI."
-            : error}
+        <div className="error-message" role="alert">
+          {error}
         </div>
       )}
+
 
       <div className="evidence-table panel">
         {fetching ? (
@@ -138,11 +127,39 @@ export default function AdminUsersPage() {
                     </td>
                     <td>{u.email}</td>
                     <td>
-                      <span className={`case-status-badge ${ROLE_CLASS[u.role] ?? "case-status--archived"}`}>
-                        {u.role}
-                      </span>
+                      <select
+                        className="input"
+                        value={u.role}
+                        style={{ fontSize: 12, padding: "2px 8px", width: "auto", cursor: "pointer" }}
+                        onChange={async (e) => {
+                          const newRole = e.target.value as "ADMINISTRATOR" | "INVESTIGATOR" | "AUDITOR" | "CUSTODIAN";
+                          try {
+                            await updateUserRole(accessToken!, u.id, newRole);
+                            setUsers((prev) =>
+                              prev.map((item) => (item.id === u.id ? { ...item, role: newRole } : item)),
+                            );
+                            toast({
+                              type: "success",
+                              title: "Role updated",
+                              message: `Updated ${u.name}'s role to ${newRole}`,
+                            });
+                          } catch (err) {
+                            toast({
+                              type: "error",
+                              title: "Failed to update role",
+                              message: err instanceof Error ? err.message : "Error updating role",
+                            });
+                          }
+                        }}
+                      >
+                        <option value="ADMINISTRATOR">ADMINISTRATOR</option>
+                        <option value="INVESTIGATOR">INVESTIGATOR</option>
+                        <option value="AUDITOR">AUDITOR</option>
+                        <option value="CUSTODIAN">CUSTODIAN</option>
+                      </select>
                     </td>
                     <td>{fmtDate(u.createdAt)}</td>
+
                   </tr>
                 ))}
               </tbody>

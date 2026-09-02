@@ -4,9 +4,10 @@ import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../auth-context";
 import { useNotifications } from "../../notification-context";
 import {
-  getCaseById, updateCase, getCaseComments, createCaseComment,
+  getCaseById, updateCase, getCaseComments, createCaseComment, downloadCaseSummaryPDF,
   type CaseDetail, type EvidenceRecord, type CaseComment,
 } from "@/lib/api";
+
 
 // ── Comment sub-components ────────────────────────────────────────
 
@@ -253,8 +254,10 @@ const EV_STATUS_CLASS: Record<string, string> = {
 
 export default function CaseDetailPage({ params }: { params: { id: string } }) {
   const { user, loading: authLoading, accessToken, canEdit } = useAuth();
+  const { toast } = useNotifications();
 
   const [caseData, setCaseData] = useState<CaseDetail | null>(null);
+
   const [fetching, setFetching] = useState(true);
   const [fetchError, setFetchError] = useState("");
 
@@ -263,10 +266,32 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState("");
   const [updateSuccess, setUpdateSuccess] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  async function handleExportPdf() {
+    if (!accessToken || !caseData) return;
+    setExportingPdf(true);
+    try {
+      const blob = await downloadCaseSummaryPDF(accessToken, caseData.id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Case-Summary-${caseData.title.replace(/[^a-zA-Z0-9_-]/g, "_")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      toast({ type: "error", title: err instanceof Error ? err.message : "Failed to export PDF" });
+    } finally {
+      setExportingPdf(false);
+    }
+  }
 
   useEffect(() => {
     if (!authLoading && !user) window.location.replace("/login");
   }, [authLoading, user]);
+
 
   useEffect(() => {
     if (!accessToken) return;
@@ -371,7 +396,16 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
             </span>
           </div>
         </div>
-        <div className="ev-header-actions">
+        <div className="ev-header-actions" style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            className="button button-secondary small-button"
+            onClick={handleExportPdf}
+            disabled={exportingPdf}
+            title="Download court-admissible Case Intelligence Report PDF"
+          >
+            {exportingPdf ? "Generating PDF…" : "📄 Case Report (PDF)"}
+          </button>
           <a
             className="button button-primary small-button"
             href={`/evidence/new?caseId=${caseData.id}`}
@@ -380,6 +414,7 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
             + Add evidence
           </a>
         </div>
+
       </div>
 
       {/* Detail layout */}

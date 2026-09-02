@@ -41,7 +41,7 @@ const upload = multer({
 
 // ── Zod schemas ───────────────────────────────────────────────────
 const createEvidenceSchema = z.object({
-  caseId: z.string().uuid("caseId must be a valid UUID").optional(),
+  caseId: z.preprocess((val) => (typeof val === "string" && val.trim() === "" ? undefined : val), z.string().uuid("caseId must be a valid UUID").optional()),
   name: z.string().min(2, "name must be at least 2 characters"),
   type: z.string().min(1),
   ownerOrg: z.string().min(2, "ownerOrg must be at least 2 characters"),
