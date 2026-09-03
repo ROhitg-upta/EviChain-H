@@ -3,20 +3,27 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../auth-context";
 import { useNotifications } from "../notification-context";
-import { getAuditLogs, updateMyProfile, changePassword, type AuditLog } from "@/lib/api";
+import {
+  getAuditLogs,
+  updateMyProfile,
+  changePassword,
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  type AuditLog,
+} from "@/lib/api";
 import WorkspaceShell from "@/app/components/ui/workspace-shell";
-
 
 type Tab = "general" | "security" | "preferences" | "activity";
 
 interface NotificationPrefs {
-  evidenceUploads: boolean;
   caseUpdates:     boolean;
-  systemAlerts:    boolean;
+  evidenceUploads: boolean;
+  custodyTransfers:boolean;
+  securityAlerts:  boolean;
+  auditActivity:   boolean;
+  reportReady:     boolean;
   weeklyDigest:    boolean;
 }
-
-const PREFS_KEY = "evichain-notif-prefs-v1";
 
 export default function ProfilePage() {
   const { user, loading: authLoading, accessToken, signOut } = useAuth();
@@ -34,11 +41,14 @@ export default function ProfilePage() {
   const [savingPassword, setSavingPassword]   = useState(false);
   const [passwordError, setPasswordError]     = useState("");
 
-  // Notification prefs (localStorage — no backend endpoint yet)
+  // Notification prefs
   const [prefs, setPrefs] = useState<NotificationPrefs>({
-    evidenceUploads: true,
     caseUpdates:     true,
-    systemAlerts:    true,
+    evidenceUploads: true,
+    custodyTransfers:true,
+    securityAlerts:  true,
+    auditActivity:   false,
+    reportReady:     true,
     weeklyDigest:    false,
   });
   const [savingPrefs, setSavingPrefs] = useState(false);
@@ -47,27 +57,31 @@ export default function ProfilePage() {
   const [activity, setActivity]         = useState<AuditLog[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
 
-  
-
   // Seed form from user
   useEffect(() => {
     if (user) setName(user.name);
   }, [user]);
 
-  // Load prefs from localStorage
+  // Load prefs from backend
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PREFS_KEY);
-      if (raw) setPrefs(JSON.parse(raw) as NotificationPrefs);
-    } catch { /* ignore */ }
-  }, []);
+    if (!accessToken) return;
+    getNotificationPreferences(accessToken)
+      .then((serverPrefs) => {
+        setPrefs((prev) => ({
+          ...prev,
+          ...(serverPrefs as unknown as Partial<NotificationPrefs>),
+          securityAlerts: true,
+        }));
+      })
+      .catch(() => {});
+  }, [accessToken]);
 
   // Load activity when tab switches
   useEffect(() => {
     if (tab !== "activity" || !accessToken) return;
     setLoadingActivity(true);
     getAuditLogs(accessToken, { actorUserId: user?.id, limit: 50 })
-      .then(setActivity)
+      .then((res) => setActivity(Array.isArray(res) ? res : res.items || []))
       .catch(() => setActivity([]))
       .finally(() => setLoadingActivity(false));
   }, [tab, accessToken, user?.id]);
@@ -115,11 +129,19 @@ export default function ProfilePage() {
   }
 
 
-  function handlePrefsSave() {
+  async function handlePrefsSave() {
+    if (!accessToken) return;
     setSavingPrefs(true);
     try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-      toast({ type: "success", title: "Preferences saved" });
+      const saved = await updateNotificationPreferences(accessToken, prefs as unknown as Record<string, boolean>);
+      setPrefs((prev) => ({
+        ...prev,
+        ...(saved as unknown as Partial<NotificationPrefs>),
+        securityAlerts: true,
+      }));
+      toast({ type: "success", title: "Notification preferences saved" });
+    } catch (err) {
+      toast({ type: "error", title: "Save failed", message: err instanceof Error ? err.message : "Unknown error" });
     } finally {
       setSavingPrefs(false);
     }
@@ -344,22 +366,27 @@ function fmtAction(action: string): string {
               <div className="pref-list">
                 {(
                   [
-                    { key: "evidenceUploads", label: "Evidence uploads",    desc: "Notify me when evidence is added to my cases." },
-                    { key: "caseUpdates",     label: "Case updates",         desc: "Notify me when a case status changes." },
-                    { key: "systemAlerts",    label: "System alerts",        desc: "Maintenance windows and security notices." },
-                    { key: "weeklyDigest",    label: "Weekly digest",        desc: "A weekly summary of activity across your cases." },
+                    { key: "evidenceUploads",  label: "Evidence Uploads",    desc: "Notify me when new evidence is registered or attached to my cases." },
+                    { key: "caseUpdates",      label: "Case Updates",        desc: "Notify me when case status, priority, or details are updated." },
+                    { key: "custodyTransfers", label: "Custody Transfers",   desc: "Notify me when chain-of-custody transfer events are assigned to me." },
+                    { key: "securityAlerts",   label: "Security Alerts",     desc: "Critical integrity mismatches and security events (Always active).", locked: true },
+                    { key: "auditActivity",    label: "Audit Ledger Export", desc: "Notify me when asynchronous audit logs or compliance data is generated." },
+                    { key: "reportReady",      label: "Judicial Reports",    desc: "Notify me when official case intelligence dossiers are compiled." },
+                    { key: "weeklyDigest",     label: "Weekly Digest",       desc: "A periodic summary of case activity and evidence statistics." },
                   ] as const
                 ).map((p) => (
-                  <label key={p.key} className="pref-row">
+                  <label key={p.key} className="pref-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: "1px solid var(--border-default)" }}>
                     <div>
-                      <p className="pref-title">{p.label}</p>
-                      <p className="pref-desc">{p.desc}</p>
+                      <p className="pref-title" style={{ fontWeight: 700, margin: "0 0 2px", fontSize: "13px", color: "var(--text-primary)" }}>{p.label}</p>
+                      <p className="pref-desc" style={{ margin: 0, fontSize: "12px", color: "var(--text-secondary)" }}>{p.desc}</p>
                     </div>
                     <input
                       type="checkbox"
-                      checked={prefs[p.key]}
+                      checked={Boolean(prefs[p.key])}
+                      disabled={"locked" in p && p.locked}
                       onChange={(e) => setPrefs({ ...prefs, [p.key]: e.target.checked })}
                       aria-label={p.label}
+                      style={{ width: "16px", height: "16px", cursor: "locked" in p && p.locked ? "not-allowed" : "pointer" }}
                     />
                   </label>
                 ))}

@@ -15,9 +15,10 @@ export default function MobileDashboard() {
       getCases(accessToken),
       getEvidence(accessToken),
       getAuditLogs(accessToken, { limit: 5 }),
-    ]).then(([cs, ev, logs]) => {
+    ]).then(([cs, ev, logsRes]) => {
       setStats({ cases: cs.length, evidence: ev.length });
-      setActivity(logs.map((l) => ({ action: l.action, timestamp: l.timestamp })));
+      const logItems = Array.isArray(logsRes) ? logsRes : logsRes.items || [];
+      setActivity(logItems.map((l) => ({ action: l.action, timestamp: l.timestamp })));
     }).catch(() => {/* silent — offline fallback */});
   }, [accessToken]);
 

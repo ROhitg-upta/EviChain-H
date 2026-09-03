@@ -169,7 +169,7 @@ export default function EvidenceDetailPage() {
       const res = await verifyByHash(record.sha256);
       setServerVerify(res);
     } catch {
-      setServerVerify({ sha256: record.sha256, matched: false, evidence: undefined });
+      setServerVerify({ sha256: record.sha256, verified: false, matched: false, evidence: null });
     } finally {
       setServerVerifying(false);
     }

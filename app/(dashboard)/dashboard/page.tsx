@@ -30,18 +30,19 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [cases, evidence, logs] = await Promise.all([
+      const [cases, evidence, logsRes] = await Promise.all([
         getCases(accessToken),
         getEvidence(accessToken),
         getAuditLogs(accessToken, { limit: 50 }),
       ]);
 
-      const transfers = logs.filter((l) => l.action.toLowerCase().includes("transfer")).length;
+      const logItems = Array.isArray(logsRes) ? logsRes : logsRes.items || [];
+      const transfers = logItems.filter((l) => l.action.toLowerCase().includes("transfer")).length;
 
       setData({
         cases,
         evidence,
-        auditLogs: logs,
+        auditLogs: logItems,
         transfers,
       });
     } catch (err) {

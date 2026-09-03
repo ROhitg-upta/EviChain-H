@@ -218,10 +218,6 @@ function fmtBytes(n: number) {
   return `${(n / Math.pow(k, i)).toFixed(1)} ${s[i]}`;
 }
 
-function truncate(text: string, max = 100) {
-  return text.length <= max ? text : `${text.slice(0, max)}…`;
-}
-
 function mimeIcon(mime: string) {
   if (mime.startsWith("image/")) return "IMG";
   if (mime.startsWith("video/")) return "VID";
@@ -234,31 +230,12 @@ function mimeIcon(mime: string) {
 
 const STATUS_OPTIONS = ["Active", "Review", "Closed", "Archived"];
 
-const STATUS_CLASS: Record<string, string> = {
-  Active: "case-status--active",
-  Review: "case-status--review",
-  Closed: "case-status--closed",
-  Archived: "case-status--archived",
-};
-
-const PRIORITY_CLASS: Record<string, string> = {
-  Critical: "case-priority--critical",
-  High: "case-priority--high",
-  Medium: "case-priority--medium",
-  Low: "case-priority--low",
-};
-
-const EV_STATUS_CLASS: Record<string, string> = {
-  PENDING: "pending", VERIFIED: "verified",
-  FLAGGED: "flagged", SEALED: "sealed",
-};
-
 // ── Component ─────────────────────────────────────────────────────
 
 export default function CaseDetailPage() {
   const routeParams = useParams();
   const id = typeof routeParams?.id === "string" ? routeParams.id : Array.isArray(routeParams?.id) ? routeParams.id[0] : "";
-  const { user, loading: authLoading, accessToken, canEdit } = useAuth();
+  const { loading: authLoading, accessToken, canEdit } = useAuth();
   const { toast } = useNotifications();
 
   const [caseData, setCaseData] = useState<CaseDetail | null>(null);
@@ -427,269 +404,351 @@ export default function CaseDetailPage() {
   return (
     <WorkspaceShell breadcrumbs={[{ label: "Cases", href: "/cases" }, { label: caseData.title }]}>
 
-      {/* Page title */}
-      <div className="page-header">
+      {/* Page header */}
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start",
+        paddingBottom: "var(--space-5)",
+        marginBottom: "var(--space-5)",
+        borderBottom: "1px solid var(--border-default)",
+        flexWrap: "wrap",
+        gap: 16,
+      }}>
         <div>
-          <p className="eyebrow">CASE RECORD · {caseData.id.slice(0, 8).toUpperCase()}</p>
-          <h1>{caseData.title}</h1>
-          <div className="ev-detail-chips">
-            <span
-              className={`case-status-badge ${STATUS_CLASS[caseData.status] ?? "case-status--active"}`}
-              aria-label={`Status: ${caseData.status}`}
-            >
+          <p className="eyebrow" style={{ color: "var(--brand-600)", marginBottom: 6 }}>
+            CASE DOSSIER · {caseData.id.slice(0, 8).toUpperCase()}
+          </p>
+          <h1 style={{
+            margin: 0,
+            fontSize: "var(--text-xl)",
+            fontWeight: 800,
+            letterSpacing: "var(--tracking-tight)",
+            color: "var(--text-primary)",
+          }}>
+            {caseData.title}
+          </h1>
+          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <span style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "3px 10px",
+              borderRadius: "var(--radius-sm)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              color: "var(--accent-active)",
+              background: "var(--accent-active-dim)",
+              border: "1px solid var(--accent-active-border)",
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor" }} />
               {caseData.status}
             </span>
             {caseData.priority && (
-              <span
-                className={`case-priority-badge ${PRIORITY_CLASS[caseData.priority] ?? ""}`}
-                aria-label={`Priority: ${caseData.priority}`}
-              >
-                {caseData.priority} priority
+              <span style={{
+                padding: "3px 10px",
+                borderRadius: "var(--radius-sm)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                color: caseData.priority === "Critical" ? "var(--accent-danger)" : "var(--accent-pending)",
+                background: caseData.priority === "Critical" ? "var(--accent-danger-dim)" : "var(--accent-pending-dim)",
+                border: `1px solid ${caseData.priority === "Critical" ? "var(--accent-danger-border)" : "var(--accent-pending-border)"}`,
+              }}>
+                {caseData.priority} Priority
               </span>
             )}
-            <span className="ev-chip">
+            <span style={{
+              padding: "3px 10px",
+              borderRadius: "var(--radius-sm)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              color: "var(--text-secondary)",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid var(--border-subtle)",
+            }}>
               {evidence.length} evidence item{evidence.length !== 1 ? "s" : ""}
             </span>
           </div>
         </div>
-        <div className="ev-header-actions" style={{ display: "flex", gap: 8 }}>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button
             type="button"
-            className="button button-secondary small-button"
+            className="btn btn-secondary btn-md"
             onClick={handleExportPdf}
             disabled={exportingPdf}
             title="Download court-admissible Case Intelligence Report PDF"
           >
-            {exportingPdf ? "Generating PDF…" : "📄 Case Report (PDF)"}
+            {exportingPdf ? "Generating PDF…" : "📄 Intelligence PDF"}
           </button>
-          <a
-            className="button button-primary small-button"
-            href={`/evidence/new?caseId=${caseData.id}`}
-            aria-label="Upload evidence for this case"
-          >
-            + Add evidence
-          </a>
+          {canEdit && (
+            <button
+              type="button"
+              className="btn btn-primary btn-md"
+              onClick={() => setShowUploadModal(true)}
+              aria-label="Upload evidence for this case"
+            >
+              + Add Evidence
+            </button>
+          )}
         </div>
-
       </div>
 
-      {/* Detail layout */}
-      <div className="case-detail-grid">
-        {/* Left column — metadata + status + description */}
-        <div className="case-detail-left">
-
-          {/* Metadata card */}
-          <div className="detail-card">
-            <p className="eyebrow">CASE METADATA</p>
-            <dl className="ev-meta-dl">
+      {/* Detail grid */}
+      <div className="case-grid-layout" style={{ marginBottom: 32 }}>
+        {/* Left Column: Metadata & Controls */}
+        <div style={{ display: "grid", gap: 18 }}>
+          {/* Metadata Card */}
+          <div className="case-meta-box">
+            <span className="eyebrow" style={{ display: "block", marginBottom: 12 }}>CASE METADATA</span>
+            <div style={{ display: "grid", gap: 12 }}>
               <div>
-                <dt>Case ID</dt>
-                <dd><code>{caseData.id}</code></dd>
-              </div>
-              <div>
-                <dt>Lead investigator</dt>
-                <dd>{caseData.lead?.name ?? "—"}</dd>
-              </div>
-              <div>
-                <dt>Created</dt>
-                <dd>{fmtDate(caseData.createdAt)}</dd>
-              </div>
-              <div>
-                <dt>Last updated</dt>
-                <dd>{fmtDate(caseData.updatedAt)}</dd>
-              </div>
-              {caseData.priority && (
-                <div>
-                  <dt>Priority</dt>
-                  <dd>{caseData.priority}</dd>
+                <span className="eyebrow" style={{ fontSize: 9 }}>CASE RECORD ID</span>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--neutral-400)", wordBreak: "break-all", marginTop: 2 }}>
+                  {caseData.id}
                 </div>
-              )}
-            </dl>
+              </div>
+              <div>
+                <span className="eyebrow" style={{ fontSize: 9 }}>LEAD INVESTIGATOR</span>
+                <div style={{ fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-primary)", marginTop: 2 }}>
+                  {caseData.lead?.name || "Unassigned"}
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <div>
+                  <span className="eyebrow" style={{ fontSize: 9 }}>CREATED</span>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                    {fmtDate(caseData.createdAt)}
+                  </div>
+                </div>
+                <div>
+                  <span className="eyebrow" style={{ fontSize: 9 }}>LAST ACTIVITY</span>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                    {fmtDate(caseData.updatedAt)}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Description */}
+          {/* Description Card */}
           {caseData.description && (
-            <div className="detail-card">
-              <p className="eyebrow">DESCRIPTION</p>
-              <p className="case-description-body">{caseData.description}</p>
+            <div className="case-meta-box">
+              <span className="eyebrow" style={{ display: "block", marginBottom: 8 }}>INVESTIGATION SUMMARY</span>
+              <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                {caseData.description}
+              </p>
             </div>
           )}
 
-          {/* Status update */}
-          <div className="detail-card">
-            <p className="eyebrow">STATUS CONTROL</p>
-            <h2 style={{ margin: "4px 0 14px", fontSize: 16, letterSpacing: "-0.03em" }}>
-              Update case status
-            </h2>
-            <form
-              onSubmit={handleStatusUpdate}
-              className="case-status-form"
-              aria-label="Update case status"
-            >
+          {/* Status Control Card */}
+          <div className="case-meta-box">
+            <span className="eyebrow" style={{ display: "block", marginBottom: 8 }}>STATUS CONTROL</span>
+            <form onSubmit={handleStatusUpdate} style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <select
+                className="input select"
                 value={newStatus}
                 onChange={(e) => setNewStatus(e.target.value)}
-                aria-label="Select new status"
                 disabled={!canEdit}
+                aria-label="Select new status"
+                style={{ flex: 1 }}
               >
                 {STATUS_OPTIONS.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
               <button
-                className="button button-primary small-button"
                 type="submit"
+                className="btn btn-primary btn-md"
                 disabled={updating || !canEdit || newStatus === caseData.status}
-                aria-label="Save new status"
               >
-                {updating
-                  ? <span className="loading-spinner">Saving…</span>
-                  : "Update status"}
+                {updating ? "Saving…" : "Update"}
               </button>
             </form>
+
             {updateError && (
-              <div className="error-message" style={{ marginTop: 10 }} role="alert">
+              <div role="alert" style={{ marginTop: 10, padding: "8px 12px", background: "var(--accent-danger-dim)", border: "1px solid var(--accent-danger-border)", borderRadius: "var(--radius-sm)", color: "var(--accent-danger)", fontSize: 12 }}>
                 {updateError}
               </div>
             )}
             {updateSuccess && (
-              <div className="ev-info-banner" role="status" aria-live="polite">
-                Status updated to <strong>{newStatus}</strong>.
+              <div role="status" style={{ marginTop: 10, padding: "8px 12px", background: "var(--accent-verified-dim)", border: "1px solid var(--accent-verified-border)", borderRadius: "var(--radius-sm)", color: "var(--accent-verified)", fontSize: 12 }}>
+                ✓ Status updated to <strong>{newStatus}</strong>.
               </div>
             )}
             {!canEdit && (
-              <p className="ev-field-hint" style={{ marginTop: 8 }}>
-                Auditor mode — status changes are disabled.
-              </p>
+              <small style={{ display: "block", marginTop: 8, color: "var(--text-disabled)", fontSize: 11 }}>
+                Auditor read-only mode active.
+              </small>
             )}
           </div>
         </div>
 
-        {/* Right column — evidence list */}
-        <div className="case-detail-right">
-          <div className="detail-card evidence-list-card">
-            <div className="evidence-list-header">
+        {/* Right Column: Linked Evidence Vault */}
+        <div style={{ display: "grid", gap: 18 }}>
+          <div className="case-meta-box">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <div>
-                <p className="eyebrow">LINKED EVIDENCE</p>
-                <h2>Evidence items</h2>
+                <span className="eyebrow">LINKED EVIDENCE</span>
+                <h2 style={{ margin: "4px 0 0", fontSize: "var(--text-md)", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Evidence Register ({evidence.length})
+                </h2>
               </div>
-              <button
-                type="button"
-                className="button button-primary small-button"
-                onClick={() => setShowUploadModal(true)}
-                aria-label="Upload new evidence for this case"
-              >
-                + Add evidence
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowUploadModal(true)}
+                >
+                  + Upload Evidence
+                </button>
+              )}
             </div>
 
             {evidence.length === 0 ? (
-              <div className="evidence-empty">
-                <strong>No evidence linked to this case yet.</strong>
-                <p>
-                  Upload evidence files and they will automatically appear here once
-                  linked to this case.
+              <div style={{ textAlign: "center", padding: "48px 24px", border: "1px dashed var(--border-default)", borderRadius: "var(--radius-md)", background: "var(--surface-sunken)" }}>
+                <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.5 }}>📁</div>
+                <strong style={{ display: "block", color: "var(--text-primary)", fontSize: "var(--text-sm)", marginBottom: 4 }}>
+                  No evidence registered to this case yet
+                </strong>
+                <p style={{ margin: "0 auto 16px", maxWidth: 360, fontSize: "var(--text-xs)", color: "var(--text-secondary)" }}>
+                  Upload evidence files to generate server-verified cryptographic SHA-256 fingerprints and establish immutable chain of custody.
                 </p>
-                <button
-                  type="button"
-                  className="button button-primary small-button"
-                  onClick={() => setShowUploadModal(true)}
-                >
-                  Upload first evidence file →
-                </button>
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-md"
+                    onClick={() => setShowUploadModal(true)}
+                  >
+                    + Upload First Evidence Item
+                  </button>
+                )}
               </div>
             ) : (
-              <ol className="evidence-list" aria-label="Evidence linked to this case">
+              <div style={{ display: "grid", gap: 8 }} role="list">
                 {evidence.map((ev) => (
-                  <li key={ev.id} className="evidence-item">
-                    <span className="ev-mime-badge" aria-hidden="true">
-                      {mimeIcon(ev.mimeType)}
-                    </span>
-                    <div className="evidence-item-main">
-                      <strong>{ev.name}</strong>
-                      <small>
-                        {fmtBytes(ev.sizeBytes)} ·{" "}
-                        {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" })
-                          .format(new Date(ev.createdAt))} ·{" "}
-                        {ev.collectedBy?.name ?? "Unknown"}
-                      </small>
+                  <div
+                    key={ev.id}
+                    role="listitem"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 16,
+                      padding: "12px 16px",
+                      background: "var(--surface-sunken)",
+                      border: "1px solid var(--border-default)",
+                      borderRadius: "var(--radius-md)",
+                      transition: "border-color 0.15s ease",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: "var(--radius-sm)", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border-subtle)", display: "grid", placeItems: "center", fontSize: 16, flexShrink: 0 }}>
+                        {mimeIcon(ev.mimeType)}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ display: "block", fontSize: "var(--text-sm)", color: "var(--text-primary)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+                          {ev.name}
+                        </strong>
+                        <div style={{ display: "flex", gap: 10, fontSize: 11, color: "var(--text-disabled)", marginTop: 2, flexWrap: "wrap" }}>
+                          <span>{fmtBytes(ev.sizeBytes)}</span>
+                          <span>·</span>
+                          <span>{new Intl.DateTimeFormat("en-IN", { dateStyle: "medium" }).format(new Date(ev.createdAt))}</span>
+                          <span>·</span>
+                          <span style={{ fontFamily: "var(--font-mono)" }}>SHA: {ev.sha256.slice(0, 10)}…</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="evidence-item-right">
-                      <span
-                        className={`status ${EV_STATUS_CLASS[ev.status] ?? "pending"}`}
-                        aria-label={`Evidence status: ${ev.status}`}
-                      >
-                        <span aria-hidden="true" />
-                        {ev.status.charAt(0) + ev.status.slice(1).toLowerCase()}
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                      <span style={{
+                        padding: "2px 8px",
+                        borderRadius: "var(--radius-sm)",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: 10,
+                        fontWeight: 600,
+                        color: "var(--accent-verified)",
+                        background: "var(--accent-verified-dim)",
+                        border: "1px solid var(--accent-verified-border)",
+                      }}>
+                        {ev.status}
                       </span>
                       <a
-                        className="button button-secondary small-button"
+                        className="btn btn-secondary btn-sm"
                         href={`/evidence/${ev.id}`}
-                        aria-label={`View evidence: ${ev.name}`}
                       >
-                        View
+                        Inspect →
                       </a>
                     </div>
-                  </li>
+                  </div>
                 ))}
-              </ol>
+              </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* ── Direct Evidence Upload Modal ───────────────────────────── */}
+      {/* ── Direct Evidence Upload Modal (Dark Themed) ──────────────── */}
       {showUploadModal && (
         <div
-          className="modal-backdrop"
           style={{
             position: "fixed",
             inset: 0,
-            backgroundColor: "rgba(0,0,0,0.5)",
+            backgroundColor: "rgba(0,0,0,0.75)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             zIndex: 1000,
-            backdropFilter: "blur(2px)",
+            backdropFilter: "blur(4px)",
+            padding: 16,
           }}
           role="dialog"
           aria-labelledby="upload-modal-title"
           aria-modal="true"
         >
           <div
-            className="modal-content"
             style={{
-              background: "white",
-              padding: 24,
-              borderRadius: 8,
-              maxWidth: 520,
-              width: "92%",
+              background: "var(--surface-raised)",
+              border: "1px solid var(--border-strong)",
+              padding: 28,
+              borderRadius: "var(--radius-lg)",
+              maxWidth: 540,
+              width: "100%",
               maxHeight: "90vh",
               overflowY: "auto",
-              boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
+              boxShadow: "var(--shadow-surface)",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h3 id="upload-modal-title" style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
-                Upload Case Evidence
-              </h3>
+              <div>
+                <span className="eyebrow" style={{ color: "var(--brand-600)" }}>FORENSIC ACQUISITION</span>
+                <h3 id="upload-modal-title" style={{ margin: "2px 0 0", fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Upload Case Evidence
+                </h3>
+              </div>
               <button
                 type="button"
                 onClick={() => !uploading && setShowUploadModal(false)}
                 disabled={uploading}
-                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}
+                style={{ background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "var(--text-secondary)" }}
                 aria-label="Close dialog"
               >
                 ×
               </button>
             </div>
 
-            <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 16px" }}>
-              Target Case: <strong>{caseData.title}</strong>
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--text-secondary)", margin: "0 0 20px" }}>
+              Target Case: <strong style={{ color: "var(--text-primary)" }}>{caseData.title}</strong>
             </p>
 
             {uploadError && (
-              <div className="error-message" role="alert" style={{ marginBottom: 16, padding: "8px 12px" }}>
+              <div role="alert" style={{ marginBottom: 16, padding: "10px 14px", background: "var(--accent-danger-dim)", border: "1px solid var(--accent-danger-border)", borderRadius: "var(--radius-md)", color: "var(--accent-danger)", fontSize: "var(--text-sm)" }}>
                 {uploadError}
               </div>
             )}
@@ -697,18 +756,17 @@ export default function CaseDetailPage() {
             {uploadSuccessHash && (
               <div
                 style={{
-                  background: "#ecfdf5",
-                  border: "1px solid #10b981",
-                  borderRadius: 6,
-                  padding: "12px",
+                  background: "var(--accent-verified-dim)",
+                  border: "1px solid var(--accent-verified-border)",
+                  borderRadius: "var(--radius-md)",
+                  padding: 14,
                   marginBottom: 16,
-                  fontSize: 13,
-                  color: "#065f46",
+                  color: "var(--accent-verified)",
                 }}
                 role="status"
               >
-                <strong>✓ File verified & cryptographic fingerprint created!</strong>
-                <p style={{ margin: "4px 0 0", fontFamily: "monospace", fontSize: 11, wordBreak: "break-all" }}>
+                <strong style={{ display: "block", fontSize: "var(--text-sm)" }}>✓ Evidence registered & SHA-256 confirmed!</strong>
+                <p style={{ margin: "6px 0 0", fontFamily: "var(--font-mono)", fontSize: 11, wordBreak: "break-all", color: "var(--neutral-400)" }}>
                   SHA-256: {uploadSuccessHash}
                 </p>
               </div>
@@ -716,8 +774,8 @@ export default function CaseDetailPage() {
 
             <form onSubmit={handleUploadEvidence}>
               <div style={{ marginBottom: 16 }}>
-                <label className="label" htmlFor="case-upload-file">
-                  Select Evidence File (Max 50MB) *
+                <label className="eyebrow" htmlFor="case-upload-file" style={{ display: "block", marginBottom: 6 }}>
+                  EVIDENCE FILE (MAX 50MB) *
                 </label>
                 <input
                   id="case-upload-file"
@@ -731,24 +789,19 @@ export default function CaseDetailPage() {
                       if (!uploadName) setUploadName(f.name);
                     }
                   }}
-                  style={{
-                    width: "100%",
-                    padding: "8px",
-                    border: "1px dashed #d1d5db",
-                    borderRadius: 6,
-                    background: "#f9fafb",
-                  }}
+                  className="input"
+                  style={{ padding: "8px 12px" }}
                 />
                 {uploadFile && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: "#4b5563" }}>
-                    Selected: <strong>{uploadFile.name}</strong> ({Math.round(uploadFile.size / 1024)} KB)
+                  <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-secondary)" }}>
+                    Selected: <strong style={{ color: "var(--text-primary)" }}>{uploadFile.name}</strong> ({fmtBytes(uploadFile.size)})
                   </div>
                 )}
               </div>
 
               <div style={{ marginBottom: 14 }}>
-                <label className="label" htmlFor="case-upload-name">
-                  Evidence Label / Name (Optional)
+                <label className="eyebrow" htmlFor="case-upload-name" style={{ display: "block", marginBottom: 6 }}>
+                  EVIDENCE LABEL / NAME (OPTIONAL)
                 </label>
                 <input
                   id="case-upload-name"
@@ -762,12 +815,12 @@ export default function CaseDetailPage() {
               </div>
 
               <div style={{ marginBottom: 14 }}>
-                <label className="label" htmlFor="case-upload-type">
-                  Evidence Type
+                <label className="eyebrow" htmlFor="case-upload-type" style={{ display: "block", marginBottom: 6 }}>
+                  EVIDENCE CATEGORY
                 </label>
                 <select
                   id="case-upload-type"
-                  className="select"
+                  className="input select"
                   value={uploadType}
                   disabled={uploading}
                   onChange={(e) => setUploadType(e.target.value)}
@@ -783,12 +836,12 @@ export default function CaseDetailPage() {
               </div>
 
               <div style={{ marginBottom: 18 }}>
-                <label className="label" htmlFor="case-upload-desc">
-                  Description / Acquisition Notes
+                <label className="eyebrow" htmlFor="case-upload-desc" style={{ display: "block", marginBottom: 6 }}>
+                  ACQUISITION NOTES
                 </label>
                 <textarea
                   id="case-upload-desc"
-                  className="textarea"
+                  className="input textarea"
                   rows={3}
                   placeholder="Acquisition context, hardware source, or chain of custody initial notes..."
                   value={uploadDesc}
@@ -799,20 +852,20 @@ export default function CaseDetailPage() {
 
               {uploading && uploadProgress > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
-                    <span>Uploading & Hashing…</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    <span>Processing binary stream…</span>
                     <span>{uploadProgress}%</span>
                   </div>
-                  <div style={{ height: 6, background: "#e5e7eb", borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ width: `${uploadProgress}%`, height: "100%", background: "#0f845a", transition: "width 0.2s" }} />
+                  <div style={{ height: 6, background: "var(--surface-sunken)", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${uploadProgress}%`, height: "100%", background: "var(--brand-500)", transition: "width 0.2s" }} />
                   </div>
                 </div>
               )}
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 24 }}>
                 <button
                   type="button"
-                  className="button button-secondary"
+                  className="btn btn-secondary btn-md"
                   disabled={uploading}
                   onClick={() => setShowUploadModal(false)}
                 >
@@ -820,10 +873,10 @@ export default function CaseDetailPage() {
                 </button>
                 <button
                   type="submit"
-                  className="button button-primary"
+                  className="btn btn-primary btn-md"
                   disabled={uploading || !uploadFile}
                 >
-                  {uploading ? "Processing…" : "Upload & Compute Hash"}
+                  {uploading ? "Hashing & Registering…" : "Upload & Compute SHA-256"}
                 </button>
               </div>
             </form>
@@ -832,7 +885,9 @@ export default function CaseDetailPage() {
       )}
 
       {/* ── Comments section ─────────────────────────────────────── */}
-      <CommentsSection caseId={id} />
+      <div style={{ marginTop: 24 }}>
+        <CommentsSection caseId={id} />
+      </div>
     </WorkspaceShell>
   );
 }

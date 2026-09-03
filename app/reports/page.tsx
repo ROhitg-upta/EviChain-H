@@ -1,393 +1,444 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "../auth-context";
-import { getReportsData, exportReportPdf, type ReportData } from "@/lib/api";
+import {
+  getReportsData,
+  exportReportPdf,
+  downloadCaseReportPdf,
+  getCases,
+  type ComplianceSummary,
+  type CaseRecord,
+} from "@/lib/api";
 import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
-// ── Colour palette (no external deps) ────────────────────────────
-const COLORS = ["#15845d", "#4caf50", "#2196f3", "#ff9800", "#9c27b0", "#f44336"];
-
-// ── Bar chart ─────────────────────────────────────────────────────
-function BarChart({
-  data,
-  labelKey,
-  valueKey,
-}: {
-  data: Record<string, unknown>[];
-  labelKey: string;
-  valueKey: string;
-}) {
-  const max = Math.max(...data.map((d) => d[valueKey] as number), 1);
-  return (
-    <div className="bar-chart" role="list" aria-label="Bar chart">
-      {data.map((d, i) => (
-        <div key={i} className="bar-row" role="listitem">
-          <span className="bar-label" title={String(d[labelKey])}>
-            {String(d[labelKey])}
-          </span>
-          <div className="bar-track" aria-hidden="true">
-            <div
-              className="bar-fill"
-              style={{
-                width: `${((d[valueKey] as number) / max) * 100}%`,
-                background: COLORS[i % COLORS.length],
-              }}
-            />
-          </div>
-          <span className="bar-value" aria-label={`${d[labelKey]}: ${d[valueKey]}`}>
-            {String(d[valueKey])}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ── Donut chart ───────────────────────────────────────────────────
-function DonutChart({
-  data,
-  labelKey,
-  valueKey,
-}: {
-  data: Record<string, unknown>[];
-  labelKey: string;
-  valueKey: string;
-}) {
-  const total = data.reduce((sum, d) => sum + (d[valueKey] as number), 0) || 1;
-  const radius = 60;
-  const circumference = 2 * Math.PI * radius;
-  let cumulative = 0;
-
-  return (
-    <div className="donut-wrapper">
-      <svg
-        viewBox="0 0 160 160"
-        className="donut-svg"
-        role="img"
-        aria-label="Donut chart"
-      >
-        {/* Background ring */}
-        <circle
-          cx="80" cy="80" r={radius}
-          fill="none" stroke="#eef2ee" strokeWidth="24"
-        />
-        {data.map((d, i) => {
-          const fraction = (d[valueKey] as number) / total;
-          const dash = fraction * circumference;
-          const offset = circumference - (cumulative / total) * circumference;
-          cumulative += d[valueKey] as number;
-          return (
-            <circle
-              key={i}
-              cx="80" cy="80" r={radius}
-              fill="none"
-              stroke={COLORS[i % COLORS.length]}
-              strokeWidth="24"
-              strokeDasharray={`${dash} ${circumference - dash}`}
-              strokeDashoffset={offset}
-              transform="rotate(-90 80 80)"
-            >
-              <title>{`${d[labelKey]}: ${d[valueKey]}`}</title>
-            </circle>
-          );
-        })}
-        <text
-          x="80" y="80"
-          textAnchor="middle" dy="6"
-          className="donut-center-text"
-        >
-          {total}
-        </text>
-      </svg>
-
-      <div className="donut-legend" role="list">
-        {data.map((d, i) => (
-          <div key={i} className="legend-item" role="listitem">
-            <span
-              className="legend-dot"
-              style={{ background: COLORS[i % COLORS.length] }}
-              aria-hidden="true"
-            />
-            <span className="legend-label">{String(d[labelKey])}</span>
-            <span className="legend-value">{String(d[valueKey])}</span>
-          </div>
-        ))}
+// ── Activity Bar Chart ─────────────────────────────────────────────
+function ActivityChart({ data }: { data: { date: string; count: number }[] }) {
+  if (!data || data.length === 0) {
+    return (
+      <div style={{ padding: "32px", textAlign: "center", color: "var(--text-secondary)", fontSize: "13px" }}>
+        No system activity recorded in this period.
       </div>
-    </div>
-  );
-}
-
-// ── Line trend chart ──────────────────────────────────────────────
-function LineTrend({ data }: { data: { month: string; count: number }[] }) {
-  if (data.length === 0) {
-    return <p className="ev-muted" style={{ fontSize: 12 }}>No data for this period.</p>;
+    );
   }
 
   const max = Math.max(...data.map((d) => d.count), 1);
-  const W = 600;
-  const H = 160;
-  const stepX = data.length > 1 ? W / (data.length - 1) : W;
-
-  const pts = data.map((d, i) => {
-    const x = i * stepX;
-    const y = H - (d.count / max) * (H - 20) - 10;
-    return { x, y, ...d };
-  });
-
-  const polyline = pts.map((p) => `${p.x},${p.y}`).join(" ");
 
   return (
-    <div className="line-chart-wrapper">
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="line-chart-svg"
-        preserveAspectRatio="none"
-        role="img"
-        aria-label="Line trend chart"
-      >
-        <polyline
-          points={polyline}
-          fill="none"
-          stroke="#15845d"
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {pts.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r="5" fill="#15845d">
-            <title>{`${p.month}: ${p.count}`}</title>
-          </circle>
-        ))}
-      </svg>
-      <div className="line-chart-labels" aria-hidden="true">
-        {data.map((d, i) => (
-          <span key={i}>{d.month.slice(5)}</span> // show MM only to save space
-        ))}
-      </div>
+    <div style={{ display: "flex", alignItems: "flex-end", gap: "8px", height: "140px", padding: "16px 0 8px" }}>
+      {data.map((d, i) => {
+        const heightPct = Math.max(6, (d.count / max) * 100);
+        return (
+          <div
+            key={i}
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "6px",
+              height: "100%",
+              justifyContent: "flex-end",
+            }}
+          >
+            <span style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-disabled)" }}>
+              {d.count}
+            </span>
+            <div
+              style={{
+                width: "100%",
+                height: `${heightPct}%`,
+                background: "linear-gradient(180deg, var(--brand-400), var(--brand-600))",
+                borderRadius: "3px 3px 0 0",
+                transition: "height 0.3s ease",
+              }}
+              title={`${d.date}: ${d.count} events`}
+            />
+            <span
+              style={{
+                fontSize: "9px",
+                fontFamily: "var(--font-mono)",
+                color: "var(--text-secondary)",
+                whiteSpace: "nowrap",
+                transform: data.length > 10 ? "rotate(-45deg)" : "none",
+                transformOrigin: "left bottom",
+                marginTop: "4px",
+              }}
+            >
+              {d.date.slice(5)}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────
+// ── Main Reports Page Component ───────────────────────────────────
+
 export default function ReportsPage() {
   const { user, loading: authLoading, accessToken } = useAuth();
 
-  const [data, setData] = useState<ReportData | null>(null);
+  const [rangeDays, setRangeDays] = useState("30");
+  const [data, setData] = useState<ComplianceSummary | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [range, setRange] = useState<"30" | "90" | "365">("90");
-  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  
+  // Case list for PDF generation
+  const [cases, setCases] = useState<CaseRecord[]>([]);
+  const [selectedCaseId, setSelectedCaseId] = useState("");
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [pdfToast, setPdfToast] = useState<string | null>(null);
 
-  useEffect(() => {
+  // CSV export state
+  const [exportingCsv, setExportingCsv] = useState(false);
+
+  const fetchReports = useCallback(async () => {
     if (!accessToken) return;
     setLoading(true);
-    setError("");
-    getReportsData(accessToken, range)
-      .then(setData)
-      .catch((err: unknown) =>
-        setError(err instanceof Error ? err.message : "Failed to load reports"),
-      )
-      .finally(() => setLoading(false));
-  }, [accessToken, range]);
-
-  async function handleExport() {
-    if (!accessToken) return;
-    setExporting(true);
+    setError(null);
     try {
-      const blob = await exportReportPdf(accessToken, range);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `evichain-report-${new Date().toISOString().slice(0, 10)}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "Export failed");
+      const res = await getReportsData(accessToken, rangeDays);
+      setData(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load report metrics");
     } finally {
-      setExporting(false);
+      setLoading(false);
+    }
+  }, [accessToken, rangeDays]);
+
+  useEffect(() => {
+    fetchReports();
+  }, [fetchReports]);
+
+  // Fetch available cases for PDF exporter
+  useEffect(() => {
+    if (!accessToken) return;
+    getCases(accessToken)
+      .then((c) => {
+        setCases(c);
+        if (c.length > 0) setSelectedCaseId(c[0].id);
+      })
+      .catch(() => {});
+  }, [accessToken]);
+
+  async function handleDownloadCasePdf() {
+    if (!accessToken || !selectedCaseId || generatingPdf) return;
+    setGeneratingPdf(true);
+    setPdfToast(null);
+    try {
+      const filename = await downloadCaseReportPdf(accessToken, selectedCaseId);
+      setPdfToast(`Generated ${filename}`);
+      setTimeout(() => setPdfToast(null), 4000);
+    } catch (err) {
+      setPdfToast(err instanceof Error ? err.message : "Failed to generate PDF report");
+      setTimeout(() => setPdfToast(null), 5000);
+    } finally {
+      setGeneratingPdf(false);
     }
   }
 
-  const resolutionLabel = useMemo(
-    () => (data ? `${data.avgResolutionDays.toFixed(1)} days` : "—"),
-    [data],
-  );
+  async function handleExportCsv() {
+    if (!accessToken || exportingCsv) return;
+    setExportingCsv(true);
+    try {
+      const blob = await exportReportPdf(accessToken, rangeDays);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `evichain-compliance-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExportingCsv(false);
+    }
+  }
 
-  // ── Auth loading ────────────────────────────────────────────────
   if (authLoading) {
-    return <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
-<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}><div className="audit-loading">Loading…</div></div>
-</WorkspaceShell>;
-  }
-
-  // ── Not signed in ───────────────────────────────────────────────
-  if (!user) {
     return (
-      <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
-<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
-        <section className="ev-empty-state" style={{ marginTop: 80 }}>
-          <strong>Sign in required</strong>
-          <p>You need to be logged in to view reports.</p>
-          <a className="button button-primary" href="/login">Go to login</a>
-        </section>
-      </div>
-</WorkspaceShell>
-    );
-  }
-
-  // ── Data loading ────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
-<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
-        <div className="reports-loading">
-          <span className="reports-spinner" aria-hidden="true" />
-          <p>Loading analytics…</p>
+      <WorkspaceShell breadcrumbs={[{ label: "Compliance & Reports" }]}>
+        <div style={{ padding: "32px" }}>
+          <div className="skeleton" style={{ height: "40px", width: "260px", marginBottom: "20px" }} />
+          <div className="skeleton" style={{ height: "200px", width: "100%" }} />
         </div>
-      </div>
-</WorkspaceShell>
+      </WorkspaceShell>
     );
   }
 
-  // ── Error ───────────────────────────────────────────────────────
-  if (error || !data) {
-    return (
-      <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
-<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
-        <div className="error-message" style={{ color: "var(--accent-danger)", border: "1px solid var(--accent-danger)", background: "rgba(244, 63, 94, 0.1)", padding: "12px", borderRadius: "6px" }} role="alert">{error || "Failed to load report data"}</div>
-        <a className="button button-secondary" href="/" style={{ marginTop: 16 }}>← Back</a>
-      </div>
-</WorkspaceShell>
-    );
-  }
-
-  // ── Main render ─────────────────────────────────────────────────
   return (
-    <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
-<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
-      {/* Top bar */}
-      
+    <WorkspaceShell breadcrumbs={[{ label: "Compliance & Reports" }]}>
+      <div style={{ padding: "28px", maxWidth: "1600px", margin: "0 auto" }}>
+        
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px", marginBottom: "24px" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: 700, letterSpacing: "0.08em", color: "var(--brand-400)", textTransform: "uppercase" }}>
+                COURT-READY AUDIT SYSTEM
+              </span>
+            </div>
+            <h1 style={{ fontSize: "26px", fontWeight: 800, color: "var(--text-primary)", margin: 0, letterSpacing: "var(--tracking-tight)" }}>
+              Compliance & Reporting Intelligence
+            </h1>
+            <p style={{ margin: "6px 0 0", fontSize: "13px", color: "var(--text-secondary)" }}>
+              Official chain-of-custody ledgers, case dossiers, and cryptographic evidence summaries.
+            </p>
+          </div>
 
-      {/* Page header */}
-      <div className="reports-page-header">
-        <div>
-          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>ANALYTICS</p>
-          <h1 style={{ color: "var(--text-primary)", fontSize: "24px", margin: "8px 0" }}>Reports & analytics</h1>
-          <p className="ev-page-sub" style={{ color: "var(--text-secondary)" }}>
-            Case trends, evidence breakdown, and system insights.
-          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <select
+              className="input select"
+              value={rangeDays}
+              onChange={(e) => setRangeDays(e.target.value)}
+              style={{ width: "150px" }}
+            >
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last 365 days</option>
+            </select>
+
+            <button
+              className="btn btn-secondary btn-md"
+              onClick={handleExportCsv}
+              disabled={exportingCsv}
+            >
+              ⭳ {exportingCsv ? "Exporting…" : "Export Compliance CSV"}
+            </button>
+          </div>
         </div>
-        <div className="reports-header-actions">
-          <select
-            value={range}
-            onChange={(e) => setRange(e.target.value as typeof range)}
-            className="range-select"
-            aria-label="Select time range"
+
+        {/* PDF Toast */}
+        {pdfToast && (
+          <div
+            style={{
+              padding: "10px 16px",
+              background: "var(--accent-active-dim)",
+              border: "1px solid var(--accent-active)",
+              borderRadius: "6px",
+              color: "var(--accent-active)",
+              fontSize: "13px",
+              fontWeight: 600,
+              marginBottom: "18px",
+            }}
           >
-            <option value="30">Last 30 days</option>
-            <option value="90">Last 90 days</option>
-            <option value="365">Last 12 months</option>
-          </select>
-          <button
-            className="button button-primary"
-            onClick={handleExport}
-            disabled={exporting}
-            aria-label="Export report as CSV"
+            ✓ {pdfToast}
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div
+            style={{
+              padding: "14px 18px",
+              background: "var(--accent-danger-dim)",
+              border: "1px solid var(--accent-danger)",
+              borderRadius: "8px",
+              color: "var(--accent-danger)",
+              marginBottom: "20px",
+              fontSize: "13px",
+            }}
           >
-            {exporting
-              ? <span className="loading-spinner">Exporting…</span>
-              : "Export CSV ↓"}
-          </button>
+            ⚠ {error}
+          </div>
+        )}
+
+        {/* 4 Core Pillars Grid */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: "18px",
+            marginBottom: "24px",
+          }}
+        >
+          {/* 1. Cases Pillar */}
+          <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <span style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", color: "var(--text-secondary)", letterSpacing: "0.04em" }}>
+                Case Dossiers
+              </span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "20px", fontWeight: 800, color: "var(--text-primary)" }}>
+                {data?.cases?.total ?? 0}
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "12px" }}>
+              <div style={{ background: "var(--surface-sunken)", padding: "8px 10px", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-disabled)", display: "block", fontSize: "10.5px" }}>ACTIVE</span>
+                <strong style={{ color: "var(--accent-active)", fontFamily: "var(--font-mono)", fontSize: "14px" }}>
+                  {data?.cases?.active ?? 0}
+                </strong>
+              </div>
+              <div style={{ background: "var(--surface-sunken)", padding: "8px 10px", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-disabled)", display: "block", fontSize: "10.5px" }}>CLOSED</span>
+                <strong style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)", fontSize: "14px" }}>
+                  {data?.cases?.closed ?? 0}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Evidence Pillar */}
+          <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <span style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", color: "var(--accent-active)", letterSpacing: "0.04em" }}>
+                Evidence Registry
+              </span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "20px", fontWeight: 800, color: "var(--accent-active)" }}>
+                {data?.evidence?.total ?? 0}
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "12px" }}>
+              <div style={{ background: "var(--surface-sunken)", padding: "8px 10px", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-disabled)", display: "block", fontSize: "10.5px" }}>VERIFIED</span>
+                <strong style={{ color: "var(--accent-active)", fontFamily: "var(--font-mono)", fontSize: "14px" }}>
+                  {data?.evidence?.verified ?? 0}
+                </strong>
+              </div>
+              <div style={{ background: "var(--surface-sunken)", padding: "8px 10px", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-disabled)", display: "block", fontSize: "10.5px" }}>ALERTS / FLAGGED</span>
+                <strong style={{ color: "var(--accent-danger)", fontFamily: "var(--font-mono)", fontSize: "14px" }}>
+                  {data?.evidence?.integrityAlerts ?? 0}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          {/* 3. Custody Pillar */}
+          <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <span style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", color: "var(--accent-warning)", letterSpacing: "0.04em" }}>
+                Custody Chain
+              </span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "20px", fontWeight: 800, color: "var(--accent-warning)" }}>
+                {(data?.custody?.created ?? 0) + (data?.custody?.transferred ?? 0)}
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "12px" }}>
+              <div style={{ background: "var(--surface-sunken)", padding: "8px 10px", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-disabled)", display: "block", fontSize: "10.5px" }}>TRANSFERS</span>
+                <strong style={{ color: "var(--accent-warning)", fontFamily: "var(--font-mono)", fontSize: "14px" }}>
+                  {data?.custody?.transferred ?? 0}
+                </strong>
+              </div>
+              <div style={{ background: "var(--surface-sunken)", padding: "8px 10px", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-disabled)", display: "block", fontSize: "10.5px" }}>DOWNLOADS</span>
+                <strong style={{ color: "var(--accent-info)", fontFamily: "var(--font-mono)", fontSize: "14px" }}>
+                  {data?.custody?.downloaded ?? 0}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          {/* 4. Public Integrity Pillar */}
+          <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+              <span style={{ fontSize: "12px", fontWeight: 700, textTransform: "uppercase", color: "var(--accent-info)", letterSpacing: "0.04em" }}>
+                Integrity Checks
+              </span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "20px", fontWeight: 800, color: "var(--accent-info)" }}>
+                {data?.audit?.publicVerifications ?? 0}
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontSize: "12px" }}>
+              <div style={{ background: "var(--surface-sunken)", padding: "8px 10px", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-disabled)", display: "block", fontSize: "10.5px" }}>PUBLIC VERIFIES</span>
+                <strong style={{ color: "var(--accent-info)", fontFamily: "var(--font-mono)", fontSize: "14px" }}>
+                  {data?.audit?.publicVerifications ?? 0}
+                </strong>
+              </div>
+              <div style={{ background: "var(--surface-sunken)", padding: "8px 10px", borderRadius: "4px" }}>
+                <span style={{ color: "var(--text-disabled)", display: "block", fontSize: "10.5px" }}>TOTAL AUDIT LOGS</span>
+                <strong style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)", fontSize: "14px" }}>
+                  {data?.audit?.totalEvents ?? 0}
+                </strong>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Middle Section: Activity Timeline & Top Actions */}
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "20px", marginBottom: "28px" }}>
+          
+          {/* Daily Activity Chart */}
+          <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 12px", fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              System Activity Trend
+            </h3>
+            <ActivityChart data={data?.activityByDay || []} />
+          </div>
+
+          {/* Top Actions Distribution */}
+          <div style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "20px" }}>
+            <h3 style={{ margin: "0 0 12px", fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Top Ledger Operations
+            </h3>
+            {(!data?.topActions || data.topActions.length === 0) ? (
+              <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>No actions logged in period.</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {data.topActions.map((act, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12.5px" }}>
+                    <span style={{ fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>{act.action}</span>
+                    <span style={{ fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--brand-400)" }}>{act.count}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Bottom Section: Official Case Intelligence PDF Report Generator */}
+        <div
+          style={{
+            background: "var(--surface-raised)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "8px",
+            padding: "24px",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "16px" }}>
+            <div>
+              <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--accent-active)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                OFFICIAL JUDICIAL EXPORT
+              </span>
+              <h3 style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", margin: "4px 0" }}>
+                Generate Case Intelligence Report (PDF)
+              </h3>
+              <p style={{ margin: 0, fontSize: "13px", color: "var(--text-secondary)", maxWidth: "600px" }}>
+                Generates a complete, court-ready dossier containing case overview, all linked evidence with full SHA-256 cryptographic digests, chronological chain-of-custody logs, and official integrity certificates.
+              </p>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <select
+                className="input select"
+                value={selectedCaseId}
+                onChange={(e) => setSelectedCaseId(e.target.value)}
+                style={{ minWidth: "260px" }}
+              >
+                {cases.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title} ({c.status})
+                  </option>
+                ))}
+              </select>
+
+              <button
+                className="btn btn-primary btn-md"
+                onClick={handleDownloadCasePdf}
+                disabled={generatingPdf || !selectedCaseId}
+                style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}
+              >
+                <span>📄</span> {generatingPdf ? "Compiling PDF…" : "Download Report PDF"}
+              </button>
+            </div>
+          </div>
+        </div>
+
       </div>
-
-      {/* Stats strip */}
-      <section className="stats-grid" aria-label="Summary statistics">
-        <div className="stat-card" style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "16px", color: "var(--text-primary)" }}>
-          <span>Total cases</span>
-          <strong>{String(data.totalCases).padStart(2, "0")}</strong>
-          <small>In selected period</small>
-        </div>
-        <div className="stat-card stat-card--green">
-          <span>Total evidence</span>
-          <strong>{String(data.totalEvidence).padStart(2, "0")}</strong>
-          <small>Files registered</small>
-        </div>
-        <div className="stat-card stat-card--amber">
-          <span>Avg resolution</span>
-          <strong style={{ fontSize: 22 }}>{resolutionLabel}</strong>
-          <small>Closed cases</small>
-        </div>
-        <div className="stat-card stat-card--muted">
-          <span>Top contributor</span>
-          <strong style={{ fontSize: 16, letterSpacing: "-0.03em" }}>
-            {data.topUploaders[0]?.name ?? "—"}
-          </strong>
-          <small>
-            {data.topUploaders[0]
-              ? `${data.topUploaders[0].count} upload${data.topUploaders[0].count !== 1 ? "s" : ""}`
-              : "No uploads yet"}
-          </small>
-        </div>
-      </section>
-
-      {/* Charts grid */}
-      <div className="reports-grid">
-        <section className="report-card">
-          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Case volume trend</h2>
-          <LineTrend data={data.casesByMonth} />
-        </section>
-
-        <section className="report-card">
-          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Evidence volume trend</h2>
-          <LineTrend data={data.evidenceByMonth} />
-        </section>
-
-        <section className="report-card">
-          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Cases by status</h2>
-          {data.casesByStatus.length === 0 ? (
-            <p className="ev-muted" style={{ fontSize: 12 }}>No case data for this period.</p>
-          ) : (
-            <DonutChart
-              data={data.casesByStatus as Record<string, unknown>[]}
-              labelKey="status"
-              valueKey="count"
-            />
-          )}
-        </section>
-
-        <section className="report-card">
-          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Evidence by file type</h2>
-          {data.evidenceByType.length === 0 ? (
-            <p className="ev-muted" style={{ fontSize: 12 }}>No evidence data for this period.</p>
-          ) : (
-            <DonutChart
-              data={data.evidenceByType as Record<string, unknown>[]}
-              labelKey="type"
-              valueKey="count"
-            />
-          )}
-        </section>
-
-        <section className="report-card report-card--full">
-          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Top contributors</h2>
-          {data.topUploaders.length === 0 ? (
-            <p className="ev-muted" style={{ fontSize: 12 }}>No upload data for this period.</p>
-          ) : (
-            <BarChart
-              data={data.topUploaders as Record<string, unknown>[]}
-              labelKey="name"
-              valueKey="count"
-            />
-          )}
-        </section>
-      </div>
-    </div>
-</WorkspaceShell>
+    </WorkspaceShell>
   );
 }

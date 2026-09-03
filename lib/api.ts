@@ -68,16 +68,25 @@ export type CaseDetail = CaseRecord & {
 };
 
 export type PublicVerifyResult = {
-  matched: boolean;
   sha256: string;
+  matched: boolean;
+  verified?: boolean;
+  result?: "VERIFIED" | "NOT_FOUND" | "INVALID_REQUEST";
+  filename?: string;
+  fileType?: string;
+  fileSize?: number;
   evidence?: {
     id: string;
     name: string;
+    filename?: string;
     type: string;
+    fileType?: string;
+    fileSize?: number;
+    sizeBytes?: number;
     ownerOrg: string;
     status: string;
     registeredAt: string;
-  };
+  } | null;
   note?: string;
 };
 
@@ -652,46 +661,89 @@ export async function getEvidenceCustodyTimeline(
 // â”€â”€â”€ Public verification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Upload a file; server computes SHA-256 and checks registry. No auth. */
-export async function verifyFile(file: File): Promise<PublicVerifyResult> {
-  const fd = new FormData();
-  fd.append("file", file);
-
-  const res = await apiFetch(`${API_URL}/public/verify`, {
+export async function verifyEvidenceHash(sha256: string): Promise<PublicVerifyResult> {
+  const res = await apiFetch(`${API_URL}/public/verify/hash`, {
     method: "POST",
-    body: fd,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sha256 }),
   });
 
   if (!res.ok) {
-    const data = await safeJson<{ error: string }>(res);
-    throw new Error(data.error || "Verification failed");
+    const data = await safeJson<Record<string, unknown>>(res);
+    throw new Error(extractError(data, "Verification failed"));
   }
 
   return safeJson<PublicVerifyResult>(res);
 }
 
-/** Check a known SHA-256 hash against the registry. No auth. */
-export async function verifyByHash(sha256: string): Promise<PublicVerifyResult> {
-  const res = await apiFetch(`${API_URL}/public/verify/${sha256}`);
+export function verifyEvidenceFile(
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<PublicVerifyResult> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}/public/verify/file`);
 
-  if (!res.ok) {
-    const data = await safeJson<{ error: string }>(res);
-    throw new Error(data.error || "Lookup failed");
-  }
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+    }
 
-  return safeJson<PublicVerifyResult>(res);
+    xhr.onload = () => {
+      const ct = xhr.getResponseHeader("content-type") ?? "";
+      if (!ct.includes("application/json")) {
+        if (xhr.status === 413) {
+          reject(new Error("File exceeds 50MB verification limit."));
+          return;
+        }
+        if (xhr.status === 429) {
+          reject(new Error("Too many verification requests. Please try again in one minute."));
+          return;
+        }
+        reject(new Error(`Server returned HTTP ${xhr.status} (non-JSON). Confirm backend on port 4000.`));
+        return;
+      }
+
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(xhr.responseText) as Record<string, unknown>;
+      } catch {
+        reject(new Error("Server returned malformed JSON."));
+        return;
+      }
+
+      if (xhr.status >= 400) {
+        reject(new Error(extractError(data, "File verification failed")));
+        return;
+      }
+
+      resolve(data as unknown as PublicVerifyResult);
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("Unable to connect to the EviChain API. Confirm that the backend is running on port 4000."));
+    };
+
+    const fd = new FormData();
+    fd.append("file", file);
+    xhr.send(fd);
+  });
 }
 
-// â”€â”€â”€ Legacy aliases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+export const verifyFile = verifyEvidenceFile;
+export const verifyByHash = verifyEvidenceHash;
+export const publicVerifyFile = verifyEvidenceFile;
+export const publicVerifyHash = verifyEvidenceHash;
 
-export const publicVerifyFile = verifyFile;
-export const publicVerifyHash = verifyByHash;
-
-// â”€â”€â”€ Audit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Audit ───────────────────────────────────────────────────────────────────
 
 export type AuditLog = {
   id: string;
   actorUserId: string | null;
-  actor?: { id: string; name: string; role: string } | null;
+  actor?: { id: string; name: string; role: string; email?: string } | null;
   action: string;
   resourceType: string;
   resourceId: string;
@@ -700,43 +752,82 @@ export type AuditLog = {
   userAgent: string | null;
   timestamp: string;
   // Present only on GET /audit/:id
-  relatedCase?: { id: string; title: string; status: string } | null;
-  relatedEvidence?: { id: string; name: string; type: string; sha256: string; status: string } | null;
+  relatedCase?: { id: string; title: string; status: string; priority?: string | null } | null;
+  relatedEvidence?: { id: string; name: string; type: string; sha256: string; status: string; ownerOrg?: string } | null;
+};
+
+export type AuditPagination = {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+};
+
+export type AuditListResponse = {
+  items: AuditLog[];
+  pagination: AuditPagination;
+  filters: Record<string, unknown>;
 };
 
 export type AuditFilterParams = {
+  page?: number;
+  pageSize?: number;
+  limit?: number;
   resourceType?: string;
   resourceId?: string;
+  caseId?: string;
+  evidenceId?: string;
   actorUserId?: string;
   action?: string;
   from?: string;
   to?: string;
-  limit?: number;
+  q?: string;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
 };
 
 export async function getAuditLogs(
   token: string,
   params?: AuditFilterParams,
-): Promise<AuditLog[]> {
+): Promise<AuditListResponse> {
   const q = new URLSearchParams();
+  if (params?.page)         q.set("page",         String(params.page));
+  if (params?.pageSize)     q.set("pageSize",     String(params.pageSize));
+  else if (params?.limit)   q.set("pageSize",     String(params.limit));
   if (params?.resourceType) q.set("resourceType", params.resourceType);
   if (params?.resourceId)   q.set("resourceId",   params.resourceId);
+  if (params?.caseId)       q.set("caseId",       params.caseId);
+  if (params?.evidenceId)   q.set("evidenceId",   params.evidenceId);
   if (params?.actorUserId)  q.set("actorUserId",  params.actorUserId);
   if (params?.action)       q.set("action",       params.action);
   if (params?.from)         q.set("from",         params.from);
   if (params?.to)           q.set("to",           params.to);
-  if (params?.limit)        q.set("limit",        String(params.limit));
+  if (params?.q)            q.set("q",            params.q);
+  if (params?.sortBy)       q.set("sortBy",       params.sortBy);
+  if (params?.sortOrder)    q.set("sortOrder",    params.sortOrder);
 
   const res = await apiFetch(`${API_URL}/audit?${q}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
-    const data = await safeJson<{ error: string }>(res);
-    throw new Error(data.error || "Failed to fetch audit logs");
+    let errMsg = "Failed to fetch audit logs";
+    try {
+      const data = await safeJson<Record<string, unknown>>(res);
+      errMsg = extractError(data, errMsg);
+    } catch {}
+    throw new Error(errMsg);
   }
 
-  return safeJson<AuditLog[]>(res);
+  const data = await safeJson<AuditListResponse | AuditLog[]>(res);
+  if (Array.isArray(data)) {
+    return {
+      items: data,
+      pagination: { page: 1, pageSize: data.length, totalItems: data.length, totalPages: 1 },
+      filters: {},
+    };
+  }
+  return data;
 }
 
 export async function getAuditLogById(token: string, id: string): Promise<AuditLog> {
@@ -745,8 +836,12 @@ export async function getAuditLogById(token: string, id: string): Promise<AuditL
   });
 
   if (!res.ok) {
-    const data = await safeJson<{ error: string }>(res);
-    throw new Error(data.error || "Failed to fetch audit log");
+    let errMsg = "Failed to fetch audit log";
+    try {
+      const data = await safeJson<Record<string, unknown>>(res);
+      errMsg = extractError(data, errMsg);
+    } catch {}
+    throw new Error(errMsg);
   }
 
   return safeJson<AuditLog>(res);
@@ -756,25 +851,24 @@ export type ExportAuditParams = AuditFilterParams & {
   format?: "json" | "csv";
 };
 
-/**
- * POST /audit/export â€” returns a Blob for browser download.
- * Triggers the download automatically and returns the filename used.
- */
 export async function exportAuditLogs(
   token: string,
   params?: ExportAuditParams,
 ): Promise<string> {
-  const format = params?.format ?? "json";
+  const format = params?.format ?? "csv";
   const dateStamp = new Date().toISOString().slice(0, 10);
-  const filename = `audit-export-${dateStamp}.${format}`;
+  const filename = `evichain-audit-${dateStamp}.${format}`;
 
-  const body: Record<string, string> = { format };
+  const body: Record<string, unknown> = { format };
   if (params?.resourceType) body.resourceType = params.resourceType;
   if (params?.resourceId)   body.resourceId   = params.resourceId;
+  if (params?.caseId)       body.caseId       = params.caseId;
+  if (params?.evidenceId)   body.evidenceId   = params.evidenceId;
   if (params?.actorUserId)  body.actorUserId  = params.actorUserId;
   if (params?.action)       body.action       = params.action;
   if (params?.from)         body.from         = params.from;
   if (params?.to)           body.to           = params.to;
+  if (params?.q)            body.q            = params.q;
 
   const res = await apiFetch(`${API_URL}/audit/export`, {
     method: "POST",
@@ -786,8 +880,12 @@ export async function exportAuditLogs(
   });
 
   if (!res.ok) {
-    const data = await safeJson<{ error: string }>(res);
-    throw new Error(data.error || "Failed to export audit logs");
+    let errMsg = "Failed to export audit logs";
+    try {
+      const data = await safeJson<Record<string, unknown>>(res);
+      errMsg = extractError(data, errMsg);
+    } catch {}
+    throw new Error(errMsg);
   }
 
   const blob = await res.blob();
@@ -801,56 +899,109 @@ export async function exportAuditLogs(
   return filename;
 }
 
-// â”€â”€â”€ Reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Reports & Compliance Intelligence ────────────────────────────────────────
 
-export type ReportData = {
-  totalCases: number;
-  totalEvidence: number;
-  avgResolutionDays: number;
-  casesByStatus: { status: string; count: number }[];
-  casesByMonth: { month: string; count: number }[];
-  evidenceByType: { type: string; count: number }[];
-  evidenceByMonth: { month: string; count: number }[];
-  topUploaders: { name: string; count: number }[];
+export type ComplianceSummary = {
+  period: { from: string; to: string };
+  cases: { total: number; active: number; closed: number; archived: number };
+  evidence: { total: number; verified: number; pending: number; integrityAlerts: number };
+  custody: { created: number; transferred: number; accessed: number; downloaded: number };
+  audit: { totalEvents: number; publicVerifications: number; failedActions: number };
+  topActions: { action: string; count: number }[];
+  activityByDay: { date: string; count: number }[];
+  // Backwards compatibility properties
+  totalCases?: number;
+  totalEvidence?: number;
+  avgResolutionDays?: number;
+  casesByStatus?: { status: string; count: number }[];
+  casesByMonth?: { month: string; count: number }[];
+  evidenceByType?: { type: string; count: number }[];
+  evidenceByMonth?: { month: string; count: number }[];
+  topUploaders?: { name: string; count: number }[];
 };
+
+export type ReportData = ComplianceSummary;
 
 export async function getReportsData(
   token: string,
-  rangeDays: string,
-): Promise<ReportData> {
-  const res = await apiFetch(`${API_URL}/reports?range=${rangeDays}`, {
+  rangeOrDays?: string | number,
+): Promise<ComplianceSummary> {
+  const range = rangeOrDays || "30";
+  const res = await apiFetch(`${API_URL}/reports/summary?range=${range}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
-    const data = await safeJson<{ error: string }>(res);
-    throw new Error(data.error || "Failed to load report data");
+    let errMsg = "Failed to load report summary data";
+    try {
+      const data = await safeJson<Record<string, unknown>>(res);
+      errMsg = extractError(data, errMsg);
+    } catch {}
+    throw new Error(errMsg);
   }
 
-  return safeJson<ReportData>(res);
+  const data = await safeJson<ComplianceSummary>(res);
+  data.totalCases = data.cases?.total ?? 0;
+  data.totalEvidence = data.evidence?.total ?? 0;
+  data.avgResolutionDays = 0;
+  data.casesByStatus = [
+    { status: "Active", count: data.cases?.active ?? 0 },
+    { status: "Closed", count: data.cases?.closed ?? 0 },
+    { status: "Archived", count: data.cases?.archived ?? 0 },
+  ];
+  return data;
 }
 
 export async function exportReportPdf(
   token: string,
   rangeDays: string,
 ): Promise<Blob> {
-  // Backend returns CSV (no PDF renderer on server); filename uses .csv
-  const res = await apiFetch(
-    `${API_URL}/reports/export?range=${rangeDays}`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
+  const res = await apiFetch(`${API_URL}/reports/export?range=${rangeDays}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 
   if (!res.ok) {
-    const data = await safeJson<{ error: string }>(res);
-    throw new Error(data.error || "Export failed");
+    let errMsg = "Export failed";
+    try {
+      const data = await safeJson<Record<string, unknown>>(res);
+      errMsg = extractError(data, errMsg);
+    } catch {}
+    throw new Error(errMsg);
   }
 
   return res.blob();
 }
 
+export async function downloadCaseReportPdf(
+  token: string,
+  caseId: string,
+): Promise<string> {
+  const res = await apiFetch(`${API_URL}/cases/${caseId}/summary.pdf`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 
+  if (!res.ok) {
+    let errMsg = "Failed to download Case Intelligence PDF";
+    try {
+      const data = await safeJson<Record<string, unknown>>(res);
+      errMsg = extractError(data, errMsg);
+    } catch {}
+    throw new Error(errMsg);
+  }
 
-// â”€â”€â”€ Global search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const blob = await res.blob();
+  const filename = `EviChain-Case-Report-${caseId.slice(0, 8)}.pdf`;
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.URL.revokeObjectURL(url);
+
+  return filename;
+}
+
+// ─── Global search ───────────────────────────────────────────────────────────
 
 export type GlobalSearchResult = {
   cases:    { id: string; title: string; status: string }[];
@@ -929,12 +1080,19 @@ export async function changePassword(
 export async function getNotificationPreferences(
   token: string,
 ): Promise<Record<string, boolean>> {
-  const res = await apiFetch(`${API_URL}/users/me/notification-preferences`, {
+  const res = await apiFetch(`${API_URL}/notifications/preferences`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
-    // Endpoint may not exist yet â€” return defaults silently
-    return {};
+    return {
+      caseUpdates: true,
+      evidenceUploads: true,
+      custodyTransfers: true,
+      securityAlerts: true,
+      auditActivity: false,
+      reportReady: true,
+      weeklyDigest: false,
+    };
   }
   return safeJson(res);
 }
@@ -943,7 +1101,7 @@ export async function updateNotificationPreferences(
   token: string,
   prefs: Record<string, boolean>,
 ): Promise<Record<string, boolean>> {
-  const res = await apiFetch(`${API_URL}/users/me/notification-preferences`, {
+  const res = await apiFetch(`${API_URL}/notifications/preferences`, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -952,8 +1110,13 @@ export async function updateNotificationPreferences(
     body: JSON.stringify(prefs),
   });
   if (!res.ok) {
-    const err = await safeJson<{ error: string }>(res);
-    throw new Error(err.error || "Failed to save preferences");
+    let errMsg = "Failed to update notification preferences";
+    try {
+      const err = await safeJson<{ error?: { message?: string } | string }>(res);
+      if (typeof err.error === "string") errMsg = err.error;
+      else if (err.error?.message) errMsg = err.error.message;
+    } catch {}
+    throw new Error(errMsg);
   }
   return safeJson(res);
 }
@@ -1031,15 +1194,53 @@ export async function saveEvidenceAnnotations(
 
 // ─── Real-Time Notifications ──────────────────────────────────────────────────
 
+export type NotificationType =
+  | "CASE_CREATED"
+  | "CASE_UPDATED"
+  | "CASE_DELETED"
+  | "EVIDENCE_UPLOADED"
+  | "CUSTODY_TRANSFER_RECEIVED"
+  | "CUSTODY_TRANSFER_COMPLETED"
+  | "EVIDENCE_ACCESSED"
+  | "EVIDENCE_DOWNLOADED"
+  | "INTEGRITY_VERIFIED"
+  | "INTEGRITY_ALERT"
+  | "REPORT_READY"
+  | "AUDIT_EXPORT_READY"
+  | "SECURITY_EVENT"
+  | "success"
+  | "warning"
+  | "error"
+  | "info"
+  | "transfer"
+  | "mention";
+
 export interface NotificationRecord {
   id: string;
   userId: string;
-  type: "success" | "warning" | "error" | "info" | "transfer" | "mention";
+  type: NotificationType;
   title: string;
   message: string;
   link: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
   read: boolean;
+  readAt?: string | null;
   createdAt: string;
+}
+
+export interface NotificationPagination {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+}
+
+export interface NotificationListResponse {
+  items: NotificationRecord[];
+  notifications: NotificationRecord[];
+  pagination: NotificationPagination;
+  unreadCount: number;
 }
 
 export function getNotificationStreamUrl(): string {
@@ -1048,22 +1249,56 @@ export function getNotificationStreamUrl(): string {
 
 export async function getNotifications(
   token: string,
-  options?: { limit?: number; unreadOnly?: boolean },
-): Promise<{ notifications: NotificationRecord[]; unreadCount: number }> {
+  options?: {
+    page?: number;
+    pageSize?: number;
+    limit?: number;
+    unreadOnly?: boolean;
+    type?: string;
+    from?: string;
+    to?: string;
+  },
+): Promise<NotificationListResponse> {
   const params = new URLSearchParams();
-  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.page) params.set("page", String(options.page));
+  if (options?.pageSize) params.set("pageSize", String(options.pageSize));
+  else if (options?.limit) params.set("pageSize", String(options.limit));
   if (options?.unreadOnly) params.set("unreadOnly", "true");
+  if (options?.type) params.set("type", options.type);
+  if (options?.from) params.set("from", options.from);
+  if (options?.to) params.set("to", options.to);
 
   const res = await apiFetch(`${API_URL}/notifications?${params.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
-    const e = await safeJson<{ error: string }>(res);
-    throw new Error(e.error || "Failed to fetch notifications");
+    let errMsg = "Failed to fetch notifications";
+    try {
+      const e = await safeJson<{ error?: { message?: string } | string }>(res);
+      if (typeof e.error === "string") errMsg = e.error;
+      else if (e.error?.message) errMsg = e.error.message;
+    } catch {}
+    throw new Error(errMsg);
   }
 
-  return safeJson(res);
+  const data = await safeJson<NotificationListResponse>(res);
+  if (!data.items && data.notifications) {
+    data.items = data.notifications;
+  }
+  if (!data.notifications && data.items) {
+    data.notifications = data.items;
+  }
+  return data;
+}
+
+export async function getUnreadNotificationCount(token: string): Promise<number> {
+  const res = await apiFetch(`${API_URL}/notifications/unread-count`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return 0;
+  const data = await safeJson<{ unreadCount: number }>(res);
+  return data.unreadCount ?? 0;
 }
 
 export async function markNotificationRead(token: string, id: string): Promise<NotificationRecord> {
@@ -1073,25 +1308,39 @@ export async function markNotificationRead(token: string, id: string): Promise<N
   });
 
   if (!res.ok) {
-    const e = await safeJson<{ error: string }>(res);
-    throw new Error(e.error || "Failed to mark notification as read");
+    let errMsg = "Failed to mark notification as read";
+    try {
+      const e = await safeJson<{ error?: { message?: string } | string }>(res);
+      if (typeof e.error === "string") errMsg = e.error;
+      else if (e.error?.message) errMsg = e.error.message;
+    } catch {}
+    throw new Error(errMsg);
   }
 
   return safeJson(res);
 }
 
-export async function markAllNotificationsRead(token: string): Promise<{ count: number }> {
+export async function markAllNotificationsRead(token: string): Promise<{ count: number; updatedCount: number }> {
   const res = await apiFetch(`${API_URL}/notifications/read-all`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
-    const e = await safeJson<{ error: string }>(res);
-    throw new Error(e.error || "Failed to mark all notifications as read");
+    let errMsg = "Failed to mark all notifications as read";
+    try {
+      const e = await safeJson<{ error?: { message?: string } | string }>(res);
+      if (typeof e.error === "string") errMsg = e.error;
+      else if (e.error?.message) errMsg = e.error.message;
+    } catch {}
+    throw new Error(errMsg);
   }
 
-  return safeJson(res);
+  const data = await safeJson<{ count: number; updatedCount?: number }>(res);
+  return {
+    count: data.updatedCount ?? data.count ?? 0,
+    updatedCount: data.updatedCount ?? data.count ?? 0,
+  };
 }
 
 export async function deleteNotification(token: string, id: string): Promise<{ message: string }> {
@@ -1101,8 +1350,13 @@ export async function deleteNotification(token: string, id: string): Promise<{ m
   });
 
   if (!res.ok) {
-    const e = await safeJson<{ error: string }>(res);
-    throw new Error(e.error || "Failed to delete notification");
+    let errMsg = "Failed to delete notification";
+    try {
+      const e = await safeJson<{ error?: { message?: string } | string }>(res);
+      if (typeof e.error === "string") errMsg = e.error;
+      else if (e.error?.message) errMsg = e.error.message;
+    } catch {}
+    throw new Error(errMsg);
   }
 
   return safeJson(res);

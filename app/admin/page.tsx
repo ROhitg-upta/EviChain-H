@@ -25,7 +25,7 @@ export default function AdminDashboard() {
       getEvidence(accessToken),
     ])
       .then(([logs, cs, ev]) => {
-        setAuditLogs(logs);
+        setAuditLogs(Array.isArray(logs) ? logs : logs.items || []);
         setCases(cs);
         setEvidence(ev);
       })

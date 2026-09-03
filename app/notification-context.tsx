@@ -17,9 +17,8 @@ import {
   deleteNotification as apiDeleteNotification,
   getNotificationStreamUrl,
   type NotificationRecord,
+  type NotificationType,
 } from "../lib/api";
-
-export type NotificationType = "info" | "success" | "warning" | "error" | "transfer" | "mention";
 
 export interface Notification {
   id: string;
@@ -29,6 +28,8 @@ export interface Notification {
   read: boolean;
   createdAt: string;
   link?: string;
+  entityType?: string;
+  entityId?: string;
 }
 
 export interface ToastMessage {
@@ -75,6 +76,10 @@ function notificationReducer(
         unreadCount: action.payload.unreadCount,
       };
     case "ADD_NOTIFICATION": {
+      // Check if already in list
+      if (state.notifications.some((n) => n.id === action.payload.id)) {
+        return state;
+      }
       const next = [action.payload, ...state.notifications];
       return {
         ...state,
@@ -124,7 +129,7 @@ interface NotificationContextValue extends NotificationState {
 
 const NotificationContext = createContext<NotificationContextValue | null>(null);
 
-const POLL_INTERVAL_MS = 45_000;
+const POLL_INTERVAL_MS = 60_000;
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { user, accessToken } = useAuth();
@@ -146,7 +151,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "SET_LOADING", payload: true });
     try {
       const data = await getNotifications(accessToken, { limit: 30 });
-      const mapped: Notification[] = data.notifications.map((n) => ({
+      const items = data.items || data.notifications || [];
+      const mapped: Notification[] = items.map((n) => ({
         id: n.id,
         type: n.type,
         title: n.title,
@@ -154,6 +160,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         read: n.read,
         createdAt: n.createdAt,
         link: n.link ?? undefined,
+        entityType: n.entityType ?? undefined,
+        entityId: n.entityId ?? undefined,
       }));
       dispatch({
         type: "SET_NOTIFICATIONS",
@@ -189,10 +197,11 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             read: notif.read,
             createdAt: notif.createdAt,
             link: notif.link ?? undefined,
+            entityType: notif.entityType ?? undefined,
+            entityId: notif.entityId ?? undefined,
           };
           dispatch({ type: "ADD_NOTIFICATION", payload: formatted });
 
-          // Pop an inline toast alert for real-time notification
           toast({
             type: formatted.type,
             title: formatted.title,
@@ -204,14 +213,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       });
 
       es.onerror = () => {
-        // Fallback to polling if SSE disconnected
         es.close();
       };
     } catch (err) {
       console.warn("EventSource not supported or blocked:", err);
     }
 
-    // Polling backup
     pollRef.current = setInterval(refresh, POLL_INTERVAL_MS);
 
     return () => {
