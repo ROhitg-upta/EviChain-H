@@ -202,12 +202,35 @@ export async function processEvidenceUpload(
 
   // 8. Trigger in-app notification
   try {
-    await notificationService.emitNotification(uploader.id, {
-      type: "success",
+    await notificationService.createNotification({
+      userId: uploader.id,
+      type: "EVIDENCE_UPLOADED",
       title: "Evidence Registered",
       message: `Registered "${createdEvidence.name}" with verified SHA-256 fingerprint.`,
       link: `/evidence/${createdEvidence.id}`,
+      entityType: "EVIDENCE",
+      entityId: createdEvidence.id,
+      dedupeKey: `EVIDENCE_UPLOADED:${createdEvidence.id}:${uploader.id}`,
     });
+
+    if (caseId) {
+      const parentCase = await prisma.case.findUnique({
+        where: { id: caseId },
+        select: { id: true, title: true, leadUserId: true },
+      });
+      if (parentCase && parentCase.leadUserId && parentCase.leadUserId !== uploader.id) {
+        await notificationService.createNotification({
+          userId: parentCase.leadUserId,
+          type: "EVIDENCE_UPLOADED",
+          title: "New Evidence Ingested",
+          message: `Evidence "${createdEvidence.name}" was attached to your case "${parentCase.title}".`,
+          link: `/cases/${parentCase.id}`,
+          entityType: "CASE",
+          entityId: parentCase.id,
+          dedupeKey: `EVIDENCE_UPLOADED:${createdEvidence.id}:${parentCase.leadUserId}`,
+        });
+      }
+    }
   } catch {
     // Non-fatal notification failure
   }

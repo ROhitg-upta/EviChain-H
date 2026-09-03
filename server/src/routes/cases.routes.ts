@@ -4,6 +4,7 @@ import PDFDocument from "pdfkit";
 import { prisma, normalizePrismaError } from "../db";
 import { requireAuth, AuthedRequest, requireRole } from "../middleware";
 import { notificationService } from "../services/notification.service";
+import { generateCaseSummaryPdf } from "../services/pdf.service";
 
 import multer from "multer";
 import { env } from "../config/env";
@@ -159,12 +160,29 @@ router.post(
         },
       });
 
-      await notificationService.emitNotification(req.userId!, {
-        type: "success",
+      await notificationService.createNotification({
+        userId: req.userId!,
+        type: "CASE_CREATED",
         title: "Case Created",
         message: `Created case "${caseRecord.title}".`,
         link: `/cases/${caseRecord.id}`,
+        entityType: "CASE",
+        entityId: caseRecord.id,
+        dedupeKey: `CASE_CREATED:${caseRecord.id}:${req.userId!}`,
       });
+
+      if (leadUserId !== req.userId!) {
+        await notificationService.createNotification({
+          userId: leadUserId,
+          type: "CASE_CREATED",
+          title: "Assigned as Case Lead",
+          message: `You were assigned as lead investigator for "${caseRecord.title}".`,
+          link: `/cases/${caseRecord.id}`,
+          entityType: "CASE",
+          entityId: caseRecord.id,
+          dedupeKey: `CASE_CREATED:${caseRecord.id}:${leadUserId}`,
+        });
+      }
 
       return res.status(201).json({ ...caseRecord, evidenceCount: 0 });
     } catch (error) {
@@ -494,91 +512,78 @@ router.post("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// GET /cases/:id/export/pdf — Case Intelligence Summary PDF
+// GET /cases/:id/summary.pdf, /:id/export/pdf, /:id/pdf — PDF Report
 // ═══════════════════════════════════════════════════════════════════
-router.get("/:id/export/pdf", requireAuth, async (req: AuthedRequest, res) => {
+router.get(["/:id/summary.pdf", "/:id/export/pdf", "/:id/pdf"], requireAuth, async (req: AuthedRequest, res) => {
   try {
     const id = req.params["id"] as string;
 
     const caseRecord = await prisma.case.findUnique({
       where: { id },
       include: {
-        lead: { select: { name: true, email: true, role: true } },
+        lead: { select: { id: true, name: true, email: true, role: true } },
         evidence: {
           orderBy: { createdAt: "desc" },
-          include: { collectedBy: { select: { name: true } } },
+          include: {
+            collectedBy: { select: { name: true } },
+            currentCustodian: { select: { name: true } },
+          },
         },
       },
     });
 
     if (!caseRecord) {
-      return res.status(404).json({ error: "Case not found" });
+      return res.status(404).json({
+        error: { code: "CASE_NOT_FOUND", message: "Case not found", status: 404 },
+      });
     }
 
-    const doc = new PDFDocument({ size: "A4", margins: { top: 40, bottom: 40, left: 45, right: 45 } });
-    const buffers: Buffer[] = [];
-
-    doc.on("data", (chunk: Buffer) => buffers.push(chunk));
-    doc.on("end", () => {
-      const pdfData = Buffer.concat(buffers);
-      res.setHeader("Content-Type", "application/pdf");
-      res.setHeader(
-        "Content-Disposition",
-        `attachment; filename="Case-Summary-${caseRecord.id.slice(0, 8)}.pdf"`,
+    // Role check for Investigators
+    if (req.userRole === "INVESTIGATOR" && caseRecord.leadUserId !== req.userId) {
+      const holdsEvidence = caseRecord.evidence.some(
+        (e) => e.collectedById === req.userId || e.currentCustodianId === req.userId,
       );
-      res.send(pdfData);
+      if (!holdsEvidence) {
+        return res.status(403).json({
+          error: { code: "FORBIDDEN", message: "You are not authorized to export reports for this case", status: 403 },
+        });
+      }
+    }
+
+    const evidenceIds = caseRecord.evidence.map((e) => e.id);
+    const custodyEvents = await prisma.custodyEvent.findMany({
+      where: { evidenceId: { in: evidenceIds } },
+      include: {
+        actor: { select: { name: true, role: true } },
+      },
+      orderBy: { timestamp: "desc" },
+      take: 20,
     });
 
-    // Header
-    doc.rect(45, 40, 505, 50).fill("#0f845a");
-    doc.fillColor("#ffffff").fontSize(15).font("Helvetica-Bold")
-       .text("EVICHAIN CASE INTELLIGENCE REPORT", 55, 50, { align: "center" });
-    doc.fontSize(8.5).font("Helvetica")
-       .text(`Case ID: ${caseRecord.id} · Generated ${new Date().toUTCString()}`, 55, 70, { align: "center" });
+    const pdfBuffer = await generateCaseSummaryPdf({
+      id: caseRecord.id,
+      title: caseRecord.title,
+      description: caseRecord.description,
+      status: caseRecord.status,
+      priority: caseRecord.priority,
+      createdAt: caseRecord.createdAt,
+      updatedAt: caseRecord.updatedAt,
+      lead: caseRecord.lead,
+      evidence: caseRecord.evidence,
+      custodyEvents,
+    });
 
-    let y = 105;
-    doc.fillColor("#0f845a").fontSize(11).font("Helvetica-Bold").text("CASE OVERVIEW", 45, y);
-    doc.strokeColor("#0f845a").lineWidth(1).moveTo(45, y + 14).lineTo(550, y + 14).stroke();
-
-    y += 22;
-    doc.rect(45, y, 505, 60).fillAndStroke("#f4f7f5", "#d1dcd3");
-    doc.fillColor("#141f1c").fontSize(9).font("Helvetica");
-    doc.text(`Title: `, 55, y + 8, { continued: true }).font("Helvetica-Bold").text(caseRecord.title);
-    doc.font("Helvetica").text(`Status: `, 55, y + 22, { continued: true }).font("Helvetica-Bold").text(caseRecord.status);
-    doc.font("Helvetica").text(`Priority: `, 55, y + 36, { continued: true }).font("Helvetica-Bold").text(caseRecord.priority);
-
-    doc.font("Helvetica").text(`Lead Investigator: `, 300, y + 8, { continued: true }).font("Helvetica-Bold").text(`${caseRecord.lead.name} (${caseRecord.lead.role})`);
-    doc.font("Helvetica").text(`Created: `, 300, y + 22, { continued: true }).font("Helvetica-Bold").text(new Date(caseRecord.createdAt).toUTCString());
-    doc.font("Helvetica").text(`Total Evidence: `, 300, y + 36, { continued: true }).font("Helvetica-Bold").text(`${caseRecord.evidence.length} item(s)`);
-
-    y += 75;
-    doc.fillColor("#0f845a").fontSize(11).font("Helvetica-Bold").text("LINKED EVIDENCE REGISTRY", 45, y);
-    doc.strokeColor("#0f845a").lineWidth(1).moveTo(45, y + 14).lineTo(550, y + 14).stroke();
-
-    y += 22;
-    doc.rect(45, y, 505, 18).fillAndStroke("#e8ede9", "#d1dcd3");
-    doc.fillColor("#141f1c").fontSize(8).font("Helvetica-Bold");
-    doc.text("NAME", 52, y + 5);
-    doc.text("TYPE / MIME", 210, y + 5);
-    doc.text("STATUS", 340, y + 5);
-    doc.text("SHA-256 (PREFIX)", 420, y + 5);
-
-    y += 18;
-    for (const ev of caseRecord.evidence) {
-      if (y > 720) { doc.addPage(); y = 45; }
-      doc.rect(45, y, 505, 20).fillAndStroke("#ffffff", "#e8ede9");
-      doc.fillColor("#141f1c").fontSize(7.5).font("Helvetica");
-      doc.text(ev.name.length > 25 ? `${ev.name.slice(0, 25)}…` : ev.name, 52, y + 6);
-      doc.text(ev.mimeType, 210, y + 6);
-      doc.font("Helvetica-Bold").text(ev.status, 340, y + 6);
-      doc.font("Courier").text(ev.sha256.slice(0, 14) + "…", 420, y + 6);
-      y += 20;
-    }
-
-    doc.end();
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="Case-Summary-${caseRecord.id.slice(0, 8)}.pdf"`,
+    );
+    return res.send(pdfBuffer);
   } catch (error) {
-    console.error("Case PDF export error:", error);
-    return res.status(500).json({ error: "Failed to generate case PDF report" });
+    console.error("Case PDF error:", error);
+    return res.status(500).json({
+      error: { code: "PDF_ERROR", message: "Failed to generate case PDF summary", status: 500 },
+    });
   }
 });
 

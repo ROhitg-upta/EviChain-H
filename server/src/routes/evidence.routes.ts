@@ -642,11 +642,15 @@ router.post(
       }
 
       if ("notifyUserId" in result && result.notifyUserId) {
-        await notificationService.emitNotification(result.notifyUserId, {
-          type: "transfer",
+        await notificationService.createNotification({
+          userId: result.notifyUserId,
+          type: "CUSTODY_TRANSFER_RECEIVED",
           title: "Evidence Custody Transferred",
           message: `You have been assigned custody of evidence: "${result.evidenceName}".`,
           link: `/evidence/${id}`,
+          entityType: "EVIDENCE",
+          entityId: id,
+          dedupeKey: `CUSTODY_TRANSFER_RECEIVED:${id}:${result.notifyUserId}:${Date.now()}`,
         });
       }
 
