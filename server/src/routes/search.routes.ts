@@ -1,206 +1,453 @@
-import { Router } from "express";
+import { Router, Response } from "express";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { requireAuth, AuthedRequest } from "../middleware";
 
+const insensitive = Prisma.QueryMode.insensitive;
+
 const router = Router();
 
-// ═══════════════════════════════════════════════════════════════════
-// GET /search — Quick global search (Command Palette)
-// ═══════════════════════════════════════════════════════════════════
-router.get("/", requireAuth, async (req: AuthedRequest, res) => {
-  const q = String(req.query.q ?? "").trim();
+export type SearchEntityType = "CASE" | "EVIDENCE" | "AUDIT" | "USER" | "NOTIFICATION" | "CUSTODY";
 
-  if (q.length < 2) {
-    return res.json({ cases: [], evidence: [], users: [] });
-  }
+export interface SearchItem {
+  id: string;
+  type: SearchEntityType;
+  title: string;
+  subtitle?: string;
+  status?: string;
+  href: string;
+  matchedFields: string[];
+  metadata?: Record<string, unknown>;
+}
 
+export interface SearchGroup {
+  type: SearchEntityType;
+  label: string;
+  total: number;
+  items: SearchItem[];
+}
+
+const ALLOWED_TYPES = new Set<SearchEntityType>([
+  "CASE",
+  "EVIDENCE",
+  "AUDIT",
+  "USER",
+  "NOTIFICATION",
+  "CUSTODY",
+]);
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /search — Scope-Aware Global Search & Suggestions API
+// ═══════════════════════════════════════════════════════════════════
+router.get("/", requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
-    const [cases, evidence, users] = await Promise.all([
-      prisma.case.findMany({
-        where: {
-          OR: [
-            { title:       { contains: q, mode: "insensitive" } },
-            { description: { contains: q, mode: "insensitive" } },
-          ],
-        },
-        select: { id: true, title: true, status: true },
-        take: 5,
-      }),
+    const rawQ = req.query.q !== undefined ? String(req.query.q) : "";
+    const q = rawQ.trim();
 
-      prisma.evidence.findMany({
-        where: {
-          OR: [
-            { name:   { contains: q, mode: "insensitive" } },
-            { sha256: { contains: q, mode: "insensitive" } },
-          ],
-        },
-        select: {
-          id:     true,
-          name:   true,
-          sha256: true,
-          case:   { select: { title: true } },
-        },
-        take: 5,
-      }),
+    if (!q || q.length < 2) {
+      return res.status(400).json({
+        error: { code: "INVALID_QUERY", message: "Search query 'q' must be at least 2 characters long." },
+      });
+    }
 
-      // Only ADMINISTRATOR gets user results
-      req.userRole === "ADMINISTRATOR"
-        ? prisma.user.findMany({
-            where: {
-              OR: [
-                { name:  { contains: q, mode: "insensitive" } },
-                { email: { contains: q, mode: "insensitive" } },
-              ],
-            },
-            select: { id: true, name: true, email: true },
-            take: 5,
-          })
-        : Promise.resolve([]),
-    ]);
-
-    return res.json({ cases, evidence, users });
-  } catch (error) {
-    console.error("Search error:", error);
-    return res.status(500).json({ error: "Search failed" });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// GET /search/advanced — Multi-field search with relevance ranking
-// ═══════════════════════════════════════════════════════════════════
-router.get("/advanced", requireAuth, async (req: AuthedRequest, res) => {
-  try {
-    const q = String(req.query.q ?? "").trim();
-    const type = req.query.type as string | undefined;
-    const status = req.query.status as string | undefined;
+    const mode = (String(req.query.mode || "full").toLowerCase() === "suggestions" ? "suggestions" : "full") as "suggestions" | "full";
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+    const pageSize = Math.min(50, Math.max(1, parseInt(String(req.query.pageSize || "20"), 10) || 20));
+    const limitPerType = Math.min(20, Math.max(1, parseInt(String(req.query.limitPerType || (mode === "suggestions" ? "5" : "15")), 10) || 5));
     const caseId = req.query.caseId as string | undefined;
-    const ownerOrg = req.query.ownerOrg as string | undefined;
-    const uploaderId = req.query.uploaderId as string | undefined;
-    const startDate = req.query.startDate as string | undefined;
-    const endDate = req.query.endDate as string | undefined;
-    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const from = req.query.from as string | undefined;
+    const to = req.query.to as string | undefined;
 
-    const where: Record<string, unknown> = {};
-
-    if (q) {
-      where.OR = [
-        { name:     { contains: q, mode: "insensitive" } },
-        { sha256:   { contains: q, mode: "insensitive" } },
-        { ownerOrg: { contains: q, mode: "insensitive" } },
-      ];
-    }
-
-    if (type) where.type = type;
-    if (status) where.status = status;
-    if (caseId) where.caseId = caseId;
-    if (ownerOrg) where.ownerOrg = { contains: ownerOrg, mode: "insensitive" };
-    if (uploaderId) where.collectedById = uploaderId;
-
-    if (startDate || endDate) {
-      const dateFilter: Record<string, Date> = {};
-      if (startDate) dateFilter.gte = new Date(startDate);
-      if (endDate) dateFilter.lte = new Date(endDate);
-      where.createdAt = dateFilter;
-    }
-
-    const items = await prisma.evidence.findMany({
-      where,
-      include: {
-        case: { select: { id: true, title: true, status: true } },
-        collectedBy: { select: { id: true, name: true, role: true } },
-        custodyEvents: { orderBy: { timestamp: "desc" }, take: 1 },
-      },
-      take: limit,
-      orderBy: { createdAt: "desc" },
-    });
-
-    // Score & rank results if search query provided
-    const rankedResults = items.map((item) => {
-      let score = 1.0;
-      if (q) {
-        const lowerQ = q.toLowerCase();
-        if (item.sha256.toLowerCase() === lowerQ) score += 10.0;
-        else if (item.sha256.toLowerCase().includes(lowerQ)) score += 5.0;
-        
-        if (item.name.toLowerCase() === lowerQ) score += 8.0;
-        else if (item.name.toLowerCase().startsWith(lowerQ)) score += 4.0;
-        else if (item.name.toLowerCase().includes(lowerQ)) score += 2.0;
-
-        if (item.ownerOrg.toLowerCase().includes(lowerQ)) score += 1.5;
+    // Parse requested entity types
+    let requestedTypes: SearchEntityType[] = [];
+    if (req.query.types) {
+      const parsedTypes = String(req.query.types)
+        .split(",")
+        .map((t) => t.trim().toUpperCase()) as SearchEntityType[];
+      for (const t of parsedTypes) {
+        if (!ALLOWED_TYPES.has(t)) {
+          return res.status(400).json({
+            error: { code: "INVALID_TYPE_FILTER", message: `Invalid search type filter: ${t}` },
+          });
+        }
+        requestedTypes.push(t);
       }
-      return { ...item, relevanceScore: score };
-    }).sort((a, b) => b.relevanceScore - a.relevanceScore);
+    } else {
+      requestedTypes = ["CASE", "EVIDENCE", "AUDIT", "USER", "NOTIFICATION", "CUSTODY"];
+    }
+
+    // Role-based scoping variables
+    const isInvestigator = req.userRole === "INVESTIGATOR";
+    const isAuditor = req.userRole === "AUDITOR";
+    const isAdmin = req.userRole === "ADMINISTRATOR";
+
+    let accessibleCaseIds: string[] = [];
+    let accessibleEvidenceIds: string[] = [];
+
+    if (isInvestigator) {
+      const [ledCases, heldEvidence] = await Promise.all([
+        prisma.case.findMany({
+          where: { leadUserId: req.userId },
+          select: { id: true },
+        }),
+        prisma.evidence.findMany({
+          where: {
+            OR: [
+              { collectedById: req.userId },
+              { currentCustodianId: req.userId },
+            ],
+          },
+          select: { id: true },
+        }),
+      ]);
+      accessibleCaseIds = ledCases.map((c) => c.id);
+      accessibleEvidenceIds = heldEvidence.map((e) => e.id);
+    }
+
+    // Date range helper
+    const dateRange: Record<string, Date> = {};
+    if (from) {
+      const d = new Date(from);
+      if (!isNaN(d.getTime())) dateRange.gte = d;
+    }
+    if (to) {
+      const d = new Date(to);
+      if (!isNaN(d.getTime())) {
+        if (to.length <= 10) d.setUTCHours(23, 59, 59, 999);
+        dateRange.lte = d;
+      }
+    }
+    const hasDateRange = Object.keys(dateRange).length > 0;
+
+    const isSha256Hex = /^[a-fA-F0-9]{64}$/.test(q);
+    const groups: SearchGroup[] = [];
+
+    // ─────────────────────────────────────────────────────────────
+    // 1. CASES SEARCH
+    // ─────────────────────────────────────────────────────────────
+    if (requestedTypes.includes("CASE")) {
+      const caseAnd: Array<Record<string, unknown>> = [];
+      if (isInvestigator) {
+        caseAnd.push({
+          OR: [
+            { leadUserId: req.userId },
+            { id: { in: accessibleCaseIds } },
+          ],
+        });
+      }
+      if (caseId) caseAnd.push({ id: caseId });
+      if (hasDateRange) caseAnd.push({ createdAt: dateRange });
+
+      caseAnd.push({
+        OR: [
+          { title: { contains: q, mode: "insensitive" } },
+          { description: { contains: q, mode: "insensitive" } },
+          { id: { equals: q } },
+        ],
+      });
+
+      const caseWhere = { AND: caseAnd };
+      const [totalCases, cases] = await Promise.all([
+        prisma.case.count({ where: caseWhere }),
+        prisma.case.findMany({
+          where: caseWhere,
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            priority: true,
+            description: true,
+            createdAt: true,
+          },
+          take: limitPerType,
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
+
+      if (totalCases > 0) {
+        groups.push({
+          type: "CASE",
+          label: "Cases",
+          total: totalCases,
+          items: cases.map((c) => {
+            const matchedFields: string[] = [];
+            if (c.title.toLowerCase().includes(q.toLowerCase())) matchedFields.push("title");
+            if (c.description?.toLowerCase().includes(q.toLowerCase())) matchedFields.push("description");
+            if (c.id === q) matchedFields.push("id");
+
+            return {
+              id: c.id,
+              type: "CASE",
+              title: c.title,
+              subtitle: `${c.status.toUpperCase()} · Priority: ${c.priority}`,
+              status: c.status,
+              href: `/cases/${c.id}`,
+              matchedFields: matchedFields.length > 0 ? matchedFields : ["title"],
+            };
+          }),
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 2. EVIDENCE SEARCH
+    // ─────────────────────────────────────────────────────────────
+    if (requestedTypes.includes("EVIDENCE")) {
+      const evAnd: Array<Record<string, unknown>> = [];
+      if (isInvestigator) {
+        evAnd.push({
+          OR: [
+            { collectedById: req.userId },
+            { currentCustodianId: req.userId },
+            { caseId: { in: accessibleCaseIds } },
+          ],
+        });
+      }
+      if (caseId) evAnd.push({ caseId });
+      if (hasDateRange) evAnd.push({ createdAt: dateRange });
+
+      if (isSha256Hex) {
+        evAnd.push({ sha256: { equals: q.toLowerCase() } });
+      } else {
+        evAnd.push({
+          OR: [
+            { name: { contains: q, mode: "insensitive" } },
+            { sha256: { contains: q.toLowerCase() } },
+            { description: { contains: q, mode: "insensitive" } },
+            { ownerOrg: { contains: q, mode: "insensitive" } },
+            { id: { equals: q } },
+          ],
+        });
+      }
+
+      const evWhere = { AND: evAnd };
+      const [totalEv, evidence] = await Promise.all([
+        prisma.evidence.count({ where: evWhere }),
+        prisma.evidence.findMany({
+          where: evWhere,
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            sha256: true,
+            status: true,
+            case: { select: { id: true, title: true } },
+          },
+          take: limitPerType,
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
+
+      if (totalEv > 0) {
+        groups.push({
+          type: "EVIDENCE",
+          label: "Evidence",
+          total: totalEv,
+          items: evidence.map((e) => {
+            const matchedFields: string[] = [];
+            if (e.name.toLowerCase().includes(q.toLowerCase())) matchedFields.push("filename");
+            if (e.sha256.toLowerCase().includes(q.toLowerCase())) matchedFields.push("sha256");
+            if (e.id === q) matchedFields.push("id");
+
+            return {
+              id: e.id,
+              type: "EVIDENCE",
+              title: e.name,
+              subtitle: `SHA-256: ${e.sha256.slice(0, 16)}… ${e.case ? `(${e.case.title})` : ""}`,
+              status: e.status,
+              href: `/evidence/${e.id}`,
+              matchedFields: matchedFields.length > 0 ? matchedFields : ["filename"],
+            };
+          }),
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 3. AUDIT LOGS SEARCH
+    // ─────────────────────────────────────────────────────────────
+    if (requestedTypes.includes("AUDIT")) {
+      const auditAnd: Array<Record<string, unknown>> = [];
+      if (isInvestigator) {
+        auditAnd.push({
+          OR: [
+            { actorUserId: req.userId },
+            { resourceType: "case", resourceId: { in: accessibleCaseIds } },
+            { resourceType: "evidence", resourceId: { in: accessibleEvidenceIds } },
+          ],
+        });
+      }
+      if (caseId) {
+        auditAnd.push({
+          OR: [
+            { resourceType: "case", resourceId: caseId },
+            { resourceId: caseId },
+          ],
+        });
+      }
+      if (hasDateRange) auditAnd.push({ timestamp: dateRange });
+
+      auditAnd.push({
+        OR: [
+          { action: { contains: q, mode: "insensitive" } },
+          { resourceType: { contains: q, mode: "insensitive" } },
+          { resourceId: { contains: q, mode: "insensitive" } },
+          { actor: { name: { contains: q, mode: "insensitive" } } },
+        ],
+      });
+
+      const auditWhere = { AND: auditAnd };
+      const [totalAudit, auditLogs] = await Promise.all([
+        prisma.auditLog.count({ where: auditWhere }),
+        prisma.auditLog.findMany({
+          where: auditWhere,
+          include: { actor: { select: { id: true, name: true, role: true } } },
+          take: limitPerType,
+          orderBy: { timestamp: "desc" },
+        }),
+      ]);
+
+      if (totalAudit > 0) {
+        groups.push({
+          type: "AUDIT",
+          label: "Audit Ledger",
+          total: totalAudit,
+          items: auditLogs.map((a) => ({
+            id: a.id,
+            type: "AUDIT",
+            title: `Audit: ${a.action}`,
+            subtitle: `${a.resourceType.toUpperCase()} · Actor: ${a.actor?.name || "System"}`,
+            href: `/audit?q=${encodeURIComponent(a.id)}`,
+            matchedFields: ["action", "resourceType"],
+          })),
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 4. USERS SEARCH (Administrator & permitted workflows only)
+    // ─────────────────────────────────────────────────────────────
+    if (requestedTypes.includes("USER") && isAdmin) {
+      const userOr: Array<Prisma.UserWhereInput> = [
+        { name: { contains: q, mode: insensitive } },
+        { email: { contains: q, mode: insensitive } },
+      ];
+      const upperQ = q.toUpperCase();
+      if (["ADMINISTRATOR", "INVESTIGATOR", "AUDITOR", "CUSTODIAN"].includes(upperQ)) {
+        userOr.push({ role: upperQ as "ADMINISTRATOR" | "INVESTIGATOR" | "AUDITOR" | "CUSTODIAN" });
+      }
+
+      const userWhere: Prisma.UserWhereInput = { OR: userOr };
+
+      const [totalUsers, users] = await Promise.all([
+        prisma.user.count({ where: userWhere }),
+        prisma.user.findMany({
+          where: userWhere,
+          select: { id: true, name: true, email: true, role: true },
+          take: limitPerType,
+          orderBy: { name: "asc" },
+        }),
+      ]);
+
+      if (totalUsers > 0) {
+        groups.push({
+          type: "USER",
+          label: "Users",
+          total: totalUsers,
+          items: users.map((u) => ({
+            id: u.id,
+            type: "USER",
+            title: u.name,
+            subtitle: `${u.role} · ${u.email}`,
+            href: `/admin/users?highlight=${u.id}`,
+            matchedFields: ["name", "email"],
+          })),
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 5. NOTIFICATIONS SEARCH (Strictly user-scoped)
+    // ─────────────────────────────────────────────────────────────
+    if (requestedTypes.includes("NOTIFICATION")) {
+      const notifWhere = {
+        userId: req.userId!,
+        OR: [
+          { title: { contains: q, mode: insensitive } },
+          { message: { contains: q, mode: insensitive } },
+          { type: { contains: q, mode: insensitive } },
+        ],
+      };
+
+      const [totalNotifs, notifs] = await Promise.all([
+        prisma.notification.count({ where: notifWhere }),
+        prisma.notification.findMany({
+          where: notifWhere,
+          take: limitPerType,
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
+
+      if (totalNotifs > 0) {
+        groups.push({
+          type: "NOTIFICATION",
+          label: "Notifications",
+          total: totalNotifs,
+          items: notifs.map((n) => ({
+            id: n.id,
+            type: "NOTIFICATION",
+            title: n.title,
+            subtitle: n.message.slice(0, 60),
+            status: n.read ? "READ" : "UNREAD",
+            href: n.link || "/notifications",
+            matchedFields: ["title", "message"],
+          })),
+        });
+      }
+    }
+
+    // Compute aggregated total across groups
+    const grandTotal = groups.reduce((acc, g) => acc + g.total, 0);
+    const totalPages = Math.ceil(grandTotal / pageSize) || 0;
+
+    // Backwards compatibility collections
+    const legacyCases = groups.find((g) => g.type === "CASE")?.items.map((i) => ({
+      id: i.id,
+      title: i.title,
+      status: i.status || "Active",
+    })) || [];
+
+    const legacyEvidence = groups.find((g) => g.type === "EVIDENCE")?.items.map((i) => ({
+      id: i.id,
+      name: i.title,
+      sha256: i.subtitle?.split(" ")[1] || "",
+      case: { title: i.subtitle || "" },
+    })) || [];
+
+    const legacyUsers = groups.find((g) => g.type === "USER")?.items.map((i) => ({
+      id: i.id,
+      name: i.title,
+      email: i.subtitle?.split(" · ")[1] || "",
+    })) || [];
 
     return res.json({
       query: q,
-      totalMatches: rankedResults.length,
-      results: rankedResults,
-    });
-  } catch (error) {
-    console.error("Advanced search error:", error);
-    return res.status(500).json({ error: "Advanced search failed" });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// GET /search/presets — List user saved presets
-// ═══════════════════════════════════════════════════════════════════
-router.get("/presets", requireAuth, async (req: AuthedRequest, res) => {
-  try {
-    const presets = await prisma.searchPreset.findMany({
-      where: { userId: req.userId! },
-      orderBy: { createdAt: "desc" },
-    });
-    return res.json(presets);
-  } catch (error) {
-    console.error("Get presets error:", error);
-    return res.status(500).json({ error: "Failed to fetch search presets" });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// POST /search/presets — Save a search filter preset
-// ═══════════════════════════════════════════════════════════════════
-router.post("/presets", requireAuth, async (req: AuthedRequest, res) => {
-  try {
-    const { name, filters } = req.body as { name: string; filters: Record<string, unknown> };
-
-    if (!name || typeof name !== "string") {
-      return res.status(400).json({ error: "Preset name is required" });
-    }
-
-    const preset = await prisma.searchPreset.create({
-      data: {
-        userId: req.userId!,
-        name,
-        filters: (filters || {}) as object,
+      mode,
+      groups,
+      pagination: {
+        page,
+        pageSize,
+        totalItems: grandTotal,
+        totalPages,
       },
+      // Backward compatibility fields for legacy command palette
+      cases: legacyCases,
+      evidence: legacyEvidence,
+      users: legacyUsers,
     });
-
-    return res.status(201).json(preset);
   } catch (error) {
-    console.error("Save preset error:", error);
-    return res.status(500).json({ error: "Failed to save search preset" });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// DELETE /search/presets/:id — Delete a saved preset
-// ═══════════════════════════════════════════════════════════════════
-router.delete("/presets/:id", requireAuth, async (req: AuthedRequest, res) => {
-  try {
-    const id = req.params["id"] as string;
-
-    const preset = await prisma.searchPreset.findUnique({ where: { id } });
-    if (!preset || preset.userId !== req.userId!) {
-      return res.status(404).json({ error: "Preset not found" });
-    }
-
-    await prisma.searchPreset.delete({ where: { id } });
-    return res.json({ message: "Preset deleted successfully" });
-  } catch (error) {
-    console.error("Delete preset error:", error);
-    return res.status(500).json({ error: "Failed to delete preset" });
+    console.error("[Search API] Global search error:", error);
+    return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Search query execution failed" } });
   }
 });
 

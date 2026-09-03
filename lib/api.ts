@@ -1003,27 +1003,96 @@ export async function downloadCaseReportPdf(
 
 // ─── Global search ───────────────────────────────────────────────────────────
 
-export type GlobalSearchResult = {
-  cases:    { id: string; title: string; status: string }[];
-  evidence: { id: string; name: string; case?: { title: string } | null }[];
-  users:    { id: string; name: string; email: string }[];
-};
+export type SearchEntityType = "CASE" | "EVIDENCE" | "AUDIT" | "USER" | "NOTIFICATION" | "CUSTODY";
+
+export interface SearchItem {
+  id: string;
+  type: SearchEntityType;
+  title: string;
+  subtitle?: string;
+  status?: string;
+  href: string;
+  matchedFields: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface SearchGroup {
+  type: SearchEntityType;
+  label: string;
+  total: number;
+  items: SearchItem[];
+}
+
+export interface GlobalSearchResponse {
+  query: string;
+  mode: "suggestions" | "full";
+  groups: SearchGroup[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+  // Backwards compatibility legacy fields
+  cases?: { id: string; title: string; status: string }[];
+  evidence?: { id: string; name: string; sha256?: string; case?: { title: string } | null }[];
+  users?: { id: string; name: string; email: string }[];
+}
+
+export interface SearchParams {
+  q: string;
+  types?: string;
+  page?: number;
+  pageSize?: number;
+  caseId?: string;
+  from?: string;
+  to?: string;
+  limitPerType?: number;
+  mode?: "suggestions" | "full";
+}
 
 export async function globalSearch(
   token: string,
-  query: string,
-): Promise<GlobalSearchResult> {
+  queryOrParams: string | SearchParams,
+): Promise<GlobalSearchResponse> {
+  const params = new URLSearchParams();
+  if (typeof queryOrParams === "string") {
+    params.set("q", queryOrParams);
+  } else {
+    params.set("q", queryOrParams.q);
+    if (queryOrParams.types) params.set("types", queryOrParams.types);
+    if (queryOrParams.page) params.set("page", String(queryOrParams.page));
+    if (queryOrParams.pageSize) params.set("pageSize", String(queryOrParams.pageSize));
+    if (queryOrParams.caseId) params.set("caseId", queryOrParams.caseId);
+    if (queryOrParams.from) params.set("from", queryOrParams.from);
+    if (queryOrParams.to) params.set("to", queryOrParams.to);
+    if (queryOrParams.limitPerType) params.set("limitPerType", String(queryOrParams.limitPerType));
+    if (queryOrParams.mode) params.set("mode", queryOrParams.mode);
+  }
+
   const res = await apiFetch(
-    `${API_URL}/search?q=${encodeURIComponent(query)}`,
+    `${API_URL}/search?${params.toString()}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
 
   if (!res.ok) {
-    const data = await safeJson<{ error: string }>(res);
-    throw new Error(data.error || "Search failed");
+    let errMsg = "Search failed";
+    try {
+      const data = await safeJson<{ error?: { message?: string } | string }>(res);
+      if (typeof data.error === "string") errMsg = data.error;
+      else if (data.error?.message) errMsg = data.error.message;
+    } catch {}
+    throw new Error(errMsg);
   }
 
-  return safeJson<GlobalSearchResult>(res);
+  return safeJson<GlobalSearchResponse>(res);
+}
+
+export async function searchSuggestions(
+  token: string,
+  q: string,
+): Promise<GlobalSearchResponse> {
+  return globalSearch(token, { q, mode: "suggestions", limitPerType: 5 });
 }
 
 // â”€â”€â”€ User profile & preferences â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
