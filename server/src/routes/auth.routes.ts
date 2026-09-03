@@ -11,6 +11,7 @@ import {
   clearRefreshCookie,
   verifyAccessToken,
 } from "../auth";
+import { requireAuth, AuthedRequest } from "../middleware";
 
 const router = Router();
 
@@ -227,6 +228,27 @@ router.post("/logout", async (req, res) => {
     console.error("Logout error:", error);
     clearRefreshCookie(res);
     return res.json({ message: "Logged out" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /auth/me  — Return currently authenticated user profile
+// ═══════════════════════════════════════════════════════════════════
+router.get("/me", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.userId },
+      select: { id: true, email: true, name: true, role: true, createdAt: true, updatedAt: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.json({ user });
+  } catch (err) {
+    console.error("GET /auth/me error:", err);
+    return res.status(500).json({ error: "Failed to load profile" });
   }
 });
 

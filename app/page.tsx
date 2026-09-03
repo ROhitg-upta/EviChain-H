@@ -19,32 +19,6 @@ function useFadeUp(threshold = 0.15) {
   return ref;
 }
 
-// ── Counting number animation ────────────────────────────────────
-function CountUp({ target, suffix = "" }: { target: number; suffix?: string }) {
-  const [val, setVal] = useState(0);
-  const ref = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(([entry]) => {
-      if (!entry.isIntersecting) return;
-      obs.disconnect();
-      const dur = 1400;
-      const start = performance.now();
-      function tick(now: number) {
-        const t = Math.min((now - start) / dur, 1);
-        const ease = 1 - Math.pow(1 - t, 3);
-        setVal(Math.round(ease * target));
-        if (t < 1) requestAnimationFrame(tick);
-      }
-      requestAnimationFrame(tick);
-    }, { threshold: 0.5 });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [target]);
-  return <span ref={ref}>{val.toLocaleString()}{suffix}</span>;
-}
-
 // ── Feature icons (inline SVG — no external lib) ─────────────────
 const FeatureIcons = {
   hash: (
@@ -85,18 +59,18 @@ const FeatureIcons = {
 };
 
 const FEATURES = [
-  { icon: "hash",   color: "brand",   title: "SHA-256 Fingerprinting",   desc: "Every file is hashed server-side the moment it's uploaded. The fingerprint is immutable — any byte change is instantly detectable." },
-  { icon: "chain",  color: "info",    title: "Chain of Custody",         desc: "Every access, transfer, and download creates a tamper-evident custody event. The full chain is always visible and exportable." },
-  { icon: "shield", color: "success", title: "Role-Based Access",        desc: "Administrators, Investigators, Auditors, and Custodians each have precisely scoped permissions. No privilege creep." },
-  { icon: "audit",  color: "warning", title: "Immutable Audit Ledger",   desc: "Every action is logged with user, IP, timestamp, and resource ID. Export as CSV or JSON for court submissions." },
-  { icon: "verify", color: "brand",   title: "Public Verification",      desc: "Anyone — lawyers, courts, external auditors — can verify a file's integrity without needing an account." },
-  { icon: "report", color: "info",    title: "Analytics & Reports",      desc: "Case trends, evidence volume, resolution time, and top contributors — all in one dashboard with CSV export." },
+  { icon: "hash",   color: "#22d3ee",   title: "SHA-256 Fingerprinting",   desc: "Every file is hashed server-side the moment it's uploaded. The fingerprint is immutable — any byte change is instantly detectable." },
+  { icon: "chain",  color: "#4abe94",    title: "Chain of Custody",         desc: "Every access, transfer, and download creates a tamper-evident custody event. The full chain is always visible and exportable." },
+  { icon: "shield", color: "#b5f542", title: "Role-Based Access",        desc: "Administrators, Investigators, Auditors, and Custodians each have precisely scoped permissions. No privilege creep." },
+  { icon: "audit",  color: "#fbbf24", title: "Immutable Audit Ledger",   desc: "Every action is logged with user, IP, timestamp, and resource ID. Export as CSV or JSON for court submissions." },
+  { icon: "verify", color: "#22d3ee",   title: "Public Verification",      desc: "Anyone — lawyers, courts, external auditors — can verify a file's integrity without needing an account." },
+  { icon: "report", color: "#4abe94",    title: "Analytics & Reports",      desc: "Case trends, evidence volume, resolution time, and top contributors — all in one dashboard with CSV export." },
 ];
 
 const STEPS = [
-  { num: "01", title: "Upload evidence",        desc: "Drag and drop any file. SHA-256 is computed on the server from the original bytes — not the client." },
-  { num: "02", title: "Track custody",          desc: "Every access and transfer is logged automatically. The custody chain builds itself as the investigation progresses." },
-  { num: "03", title: "Verify and export",      desc: "Anyone can verify a file's integrity at any time. Export the full audit ledger for court or compliance review." },
+  { num: "01", title: "Upload evidence",        desc: "SHA-256 computed server-side" },
+  { num: "02", title: "Track custody",          desc: "Every access and transfer logged" },
+  { num: "03", title: "Verify and export",      desc: "Anyone can verify integrity" },
 ];
 
 export default function LandingPage() {
@@ -104,10 +78,10 @@ export default function LandingPage() {
   const [scrolled, setScrolled] = useState(false);
 
   const heroRef    = useFadeUp(0.1);
-  const featRef    = useFadeUp(0.05) as React.RefObject<HTMLElement>;
   const stepsRef   = useFadeUp(0.05) as React.RefObject<HTMLElement>;
-  const statsRef   = useFadeUp(0.1)  as React.RefObject<HTMLElement>;
+  const featRef    = useFadeUp(0.05) as React.RefObject<HTMLElement>;
   const secRef     = useFadeUp(0.1)  as React.RefObject<HTMLElement>;
+  const pubRef     = useFadeUp(0.1)  as React.RefObject<HTMLElement>;
   const ctaRef     = useFadeUp(0.2)  as React.RefObject<HTMLElement>;
 
   useEffect(() => {
@@ -117,307 +91,259 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div className="land-root">
+    <div style={{ backgroundColor: "#0f1114", color: "#e8e6e3", fontFamily: "Inter, sans-serif", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
 
-      {/* ── Sticky header ────────────────────────────────────────── */}
-      <header className={`land-header ${scrolled ? "land-header--scrolled" : ""}`}>
-        <div className="land-container land-header-inner">
-          <a href="/" className="land-logo" aria-label="EviChain home">
-            <span className="land-logo-mark" aria-hidden="true">E</span>
-            <span className="land-logo-name">EviChain</span>
+      {/* 1. STICKY HEADER */}
+      <header style={{
+        position: "sticky", top: 0, zIndex: 50,
+        backgroundColor: scrolled ? "rgba(15, 17, 20, 0.9)" : "transparent",
+        backdropFilter: scrolled ? "blur(8px)" : "none",
+        borderBottom: scrolled ? "1px solid rgba(255,255,255,0.08)" : "1px solid transparent",
+        transition: "all 0.2s ease"
+      }}>
+        <div style={{ maxWidth: "1200px", margin: "0 auto", padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <a href="/" style={{ display: "flex", alignItems: "center", gap: "12px", textDecoration: "none", color: "inherit" }}>
+            <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "32px", height: "32px", backgroundColor: "#181b20", border: "1px solid rgba(255,255,255,0.16)", borderRadius: "4px", fontWeight: "bold", color: "#4abe94", fontFamily: "DM Mono, monospace" }}>E</span>
+            <span style={{ fontWeight: 600, fontSize: "1.125rem", letterSpacing: "-0.01em" }}>EviChain</span>
           </a>
-          <nav className="land-nav" aria-label="Main navigation">
-            <a href="#features">Features</a>
-            <a href="#how">How it works</a>
-            <a href="#security">Security</a>
-            <a href="/verify">Verify evidence</a>
+          <nav style={{ display: "flex", gap: "24px", fontSize: "0.875rem", color: "#7a7d82" }} aria-label="Main navigation">
+            <a href="#features" style={{ color: "inherit", textDecoration: "none" }}>Features</a>
+            <a href="#how" style={{ color: "inherit", textDecoration: "none" }}>How it works</a>
+            <a href="#security" style={{ color: "inherit", textDecoration: "none" }}>Security</a>
+            <a href="/verify" style={{ color: "inherit", textDecoration: "none" }}>Verify evidence</a>
           </nav>
-          <div className="land-header-cta">
+          <div style={{ display: "flex", gap: "12px" }}>
             {user ? (
-              <a href="/evidence" className="btn btn-primary btn-md">Open workspace →</a>
+              <a href="/dashboard" style={{ backgroundColor: "#4abe94", color: "#000", padding: "8px 16px", borderRadius: "4px", textDecoration: "none", fontSize: "0.875rem", fontWeight: 500 }}>Open workspace →</a>
             ) : (
               <>
-                <a href="/login" className="btn btn-ghost btn-md">Sign in</a>
-                <a href="/login" className="btn btn-primary btn-md">Get started</a>
+                <a href="/login" style={{ padding: "8px 16px", borderRadius: "4px", textDecoration: "none", fontSize: "0.875rem", color: "#e8e6e3", border: "1px solid rgba(255,255,255,0.08)" }}>Sign in</a>
+                <a href="/login" style={{ backgroundColor: "#4abe94", color: "#000", padding: "8px 16px", borderRadius: "4px", textDecoration: "none", fontSize: "0.875rem", fontWeight: 500 }}>Open the vault</a>
               </>
             )}
           </div>
         </div>
       </header>
 
-      {/* ── Hero ─────────────────────────────────────────────────── */}
-      <section className="land-hero" ref={heroRef as React.RefObject<HTMLElement>}>
-        <div className="land-hero-mesh" aria-hidden="true">
-          <div className="land-mesh-1" /><div className="land-mesh-2" /><div className="land-mesh-3" />
-        </div>
-        <div className="land-container land-hero-inner fade-up">
-          <div className="land-hero-left">
-            <p className="eyebrow" style={{ marginBottom: "var(--space-4)" }}>
-              Built for SIH 2026
-            </p>
-            <h1 className="land-hero-headline">
-              Evidence integrity<br />
-              <span className="land-hero-gradient">you can prove.</span>
-            </h1>
-            <p className="land-hero-sub">
-              SHA-256 verified chain of custody for digital evidence — from the
-              moment of upload to the courtroom.
-            </p>
-            <div className="land-hero-actions">
-              <a href="/login" className="btn btn-primary btn-xl land-cta-glow">
-                Get started free
-              </a>
-              <a href="/verify" className="btn btn-secondary btn-xl">
-                <span aria-hidden="true">✓</span> Verify evidence
-              </a>
-            </div>
-            <div className="land-trust-row" aria-label="Trust indicators">
-              <span>SHA-256 Verified</span>
-              <span aria-hidden="true">·</span>
-              <span>Court-Ready Reports</span>
-              <span aria-hidden="true">·</span>
-              <span>RBAC Enforced</span>
-              <span aria-hidden="true">·</span>
-              <span>Built for SIH 2026</span>
-            </div>
-          </div>
-
-          <div className="land-hero-right" aria-hidden="true">
-            <div className="land-hero-visual">
-              <div className="land-ev-card land-ev-card-1">
-                <div className="land-ev-header">
-                  <span className="land-ev-icon">▶</span>
-                  <div>
-                    <p className="land-ev-name">incident-video-042.mp4</p>
-                    <p className="land-ev-meta">284 MB · Digital Forensics</p>
-                  </div>
-                  <span className="land-ev-badge">Verified ✓</span>
-                </div>
-                <div className="land-ev-hash">
-                  <span className="land-ev-hash-label">SHA-256</span>
-                  <code>9f86d081884c7d659a2feaa0…</code>
-                </div>
-              </div>
-              <div className="land-ev-card land-ev-card-2">
-                <div className="land-ev-header">
-                  <span className="land-ev-icon">▣</span>
-                  <div>
-                    <p className="land-ev-name">system-logs.zip</p>
-                    <p className="land-ev-meta">18.4 MB · Security Ops</p>
-                  </div>
-                  <span className="land-ev-badge land-ev-badge-pending">Pending</span>
-                </div>
-                <div className="land-ev-hash">
-                  <span className="land-ev-hash-label">SHA-256</span>
-                  <code>60303ae22b99886…</code>
-                </div>
-              </div>
-              <div className="land-ev-card land-ev-card-3">
-                <div className="land-custody">
-                  <div className="land-custody-dot" />
-                  <div>
-                    <p className="land-custody-action">Verified by A. Sharma</p>
-                    <p className="land-custody-time">Today at 09:32</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Trust strip ──────────────────────────────────────────── */}
-      <div className="land-trust-strip">
-        <div className="land-container">
-          <p className="land-trust-strip-text">
-            Trusted by investigative teams for forensic integrity
+      {/* 2. HERO SECTION */}
+      <section ref={heroRef as React.RefObject<HTMLElement>} style={{ padding: "96px 24px", maxWidth: "1200px", margin: "0 auto", width: "100%", display: "flex", flexWrap: "wrap", gap: "64px", alignItems: "center" }} className="fade-up">
+        <div style={{ flex: "1 1 500px", display: "flex", flexDirection: "column", gap: "24px" }}>
+          <p className="eyebrow" style={{ fontFamily: "DM Mono, monospace", textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "0.75rem", color: "#22d3ee" }}>
+            DIGITAL EVIDENCE / CHAIN OF CUSTODY
           </p>
-        </div>
-      </div>
-
-      {/* ── Features ─────────────────────────────────────────────── */}
-      <section id="features" className="land-section" ref={featRef}>
-        <div className="land-container">
-          <div className="land-section-header fade-up">
-            <p className="eyebrow">What EviChain does</p>
-            <h2 className="land-section-title">Everything a custody chain needs</h2>
-            <p className="land-section-sub">
-              From upload to courtroom — every feature built for defensible evidence handling.
-            </p>
+          <h1 style={{ fontSize: "4rem", fontWeight: 700, lineHeight: 1.1, letterSpacing: "-0.02em", color: "#e8e6e3", margin: 0 }}>
+            Proof that survives scrutiny.
+          </h1>
+          <p style={{ fontSize: "1.25rem", color: "#7a7d82", lineHeight: 1.6, margin: 0 }}>
+            Immutable digital evidence, verified at every handoff.
+          </p>
+          <div style={{ display: "flex", gap: "16px", marginTop: "8px", flexWrap: "wrap" }}>
+            <a href="/login" style={{ backgroundColor: "#4abe94", color: "#000", padding: "12px 24px", borderRadius: "4px", textDecoration: "none", fontSize: "1rem", fontWeight: 500, display: "inline-block" }}>
+              Open the vault
+            </a>
+            <a href="/verify" style={{ backgroundColor: "#181b20", color: "#e8e6e3", padding: "12px 24px", borderRadius: "4px", textDecoration: "none", fontSize: "1rem", fontWeight: 500, border: "1px solid rgba(255,255,255,0.08)", display: "inline-block" }}>
+              Verify a hash →
+            </a>
           </div>
-          <div className="land-features-grid">
-            {FEATURES.map((f, i) => (
-              <div
-                key={f.title}
-                className="land-feature-card fade-up card card-interactive"
-                style={{ animationDelay: `${i * 80}ms` }}
-              >
-                <span className={`land-feature-icon land-feature-icon--${f.color}`} aria-hidden="true">
-                  {FeatureIcons[f.icon as keyof typeof FeatureIcons]}
-                </span>
-                <h3 className="land-feature-title">{f.title}</h3>
-                <p className="land-feature-desc">{f.desc}</p>
-              </div>
-            ))}
+          <div style={{ display: "flex", gap: "16px", fontSize: "0.75rem", color: "#7a7d82", marginTop: "32px", fontFamily: "DM Mono, monospace", flexWrap: "wrap" }}>
+            <span>SHA-256 Verified</span>
+            <span>·</span>
+            <span>Court-Ready</span>
+            <span>·</span>
+            <span>RBAC Enforced</span>
+            <span>·</span>
+            <span>SIH 2026</span>
           </div>
         </div>
-      </section>
 
-      {/* ── How it works ─────────────────────────────────────────── */}
-      <section id="how" className="land-section land-section--tinted" ref={stepsRef}>
-        <div className="land-container">
-          <div className="land-section-header fade-up">
-            <p className="eyebrow">Process</p>
-            <h2 className="land-section-title">Three steps to a verified record</h2>
-          </div>
-          <div className="land-steps">
-            {STEPS.map((s, i) => (
-              <div
-                key={s.num}
-                className="land-step fade-up"
-                style={{ animationDelay: `${i * 120}ms` }}
-              >
-                <div className="land-step-num" aria-hidden="true">{s.num}</div>
-                {i < STEPS.length - 1 && <div className="land-step-connector" aria-hidden="true" />}
-                <h3 className="land-step-title">{s.title}</h3>
-                <p className="land-step-desc">{s.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Stats band ───────────────────────────────────────────── */}
-      <section className="land-stats-band" ref={statsRef}>
-        <div className="land-container land-stats-grid fade-up">
-          {[
-            { n: 100,  s: "+", label: "Evidence records" },
-            { n: 50,   s: "+", label: "Cases managed" },
-            { n: 99.9, s: "%", label: "Integrity accuracy" },
-            { n: 0,    s: "",  label: "Tamper incidents" },
-          ].map((stat) => (
-            <div key={stat.label} className="land-stat">
-              <p className="land-stat-value">
-                <CountUp target={stat.n} suffix={stat.s} />
-              </p>
-              <p className="land-stat-label">{stat.label}</p>
+        <div style={{ flex: "1 1 400px" }}>
+          <div style={{ backgroundColor: "#181b20", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", overflow: "hidden", boxShadow: "0 20px 40px rgba(0,0,0,0.4)" }}>
+            <div style={{ padding: "12px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontFamily: "DM Mono, monospace", fontSize: "0.75rem", color: "#7a7d82" }}>EVIDENCE VAULT</span>
+              <span style={{ fontSize: "0.65rem", padding: "2px 6px", backgroundColor: "#f43f5e", color: "#fff", borderRadius: "4px", textTransform: "uppercase" }}>Product Preview</span>
             </div>
-          ))}
+            <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <div>
+                  <p style={{ fontSize: "0.75rem", color: "#7a7d82", marginBottom: "4px" }}>Case ID: <span style={{ fontFamily: "DM Mono, monospace", color: "#e8e6e3" }}>EVC-2026-0042</span></p>
+                  <p style={{ fontSize: "1rem", fontWeight: 500, color: "#e8e6e3" }}>incident-report-042.pdf</p>
+                  <p style={{ fontSize: "0.75rem", color: "#7a7d82", marginTop: "4px" }}>2.4 MB · PDF</p>
+                </div>
+                <div>
+                  <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#b5f542", borderLeft: "2px solid #b5f542", paddingLeft: "8px", textTransform: "uppercase" }}>VERIFIED</span>
+                </div>
+              </div>
+              <div style={{ backgroundColor: "#0a0c0e", padding: "12px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.06)" }}>
+                <p style={{ fontSize: "0.75rem", color: "#7a7d82", marginBottom: "4px" }}>SHA-256 Fingerprint</p>
+                <code style={{ fontFamily: "DM Mono, monospace", fontSize: "0.875rem", color: "#22d3ee", wordBreak: "break-all" }}>9f86d081884c7d659a2feaa0...</code>
+              </div>
+              
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "8px" }}>
+                <p style={{ fontSize: "0.75rem", color: "#7a7d82" }}>Custody Route</p>
+                <div style={{ display: "flex", justifyContent: "space-between", position: "relative", zIndex: 1 }}>
+                  <div style={{ position: "absolute", top: "4px", left: "10%", right: "10%", height: "1px", backgroundColor: "rgba(255,255,255,0.1)", zIndex: -1 }}></div>
+                  {['Captured', 'Hashed', 'Custodied', 'Court-ready'].map((step, i) => (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                      <div style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: i === 3 ? "#181b20" : "#4abe94", border: i === 3 ? "2px solid rgba(255,255,255,0.2)" : "none" }}></div>
+                      <span style={{ fontSize: "0.65rem", color: i === 3 ? "#7a7d82" : "#e8e6e3" }}>{step}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "16px", marginTop: "8px" }}>
+                <p style={{ fontSize: "0.75rem", color: "#7a7d82" }}>Current custodian: <span style={{ color: "#e8e6e3" }}>A. Sharma · Investigator</span></p>
+                <p style={{ fontSize: "0.75rem", color: "#7a7d82", marginTop: "4px" }}>Latest event: <span style={{ color: "#e8e6e3" }}>Custody transferred · 2m ago</span></p>
+              </div>
+            </div>
+            <div style={{ padding: "8px 16px", borderTop: "1px solid rgba(255,255,255,0.08)", backgroundColor: "#0a0c0e", textAlign: "center" }}>
+              <p style={{ fontSize: "0.65rem", color: "#7a7d82" }}>Product preview — not real data</p>
+            </div>
+          </div>
         </div>
       </section>
 
-      {/* ── Security ─────────────────────────────────────────────── */}
-      <section id="security" className="land-section" ref={secRef}>
-        <div className="land-container land-security-grid">
-          <div className="land-security-left fade-up">
-            <p className="eyebrow">Security & compliance</p>
-            <h2 className="land-section-title" style={{ textAlign: "left" }}>
-              Built for trust from day one
-            </h2>
-            <p className="land-security-sub">
-              Every design decision in EviChain starts with the question:
-              <em> "Could this hold up in court?"</em>
-            </p>
-            <ul className="land-checklist" aria-label="Security features">
+      {/* 3. CHAIN OF CUSTODY WORKFLOW */}
+      <section id="how" ref={stepsRef} className="fade-up" style={{ backgroundColor: "#0a0c0e", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)", padding: "96px 24px" }}>
+        <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
+          <p className="eyebrow" style={{ fontFamily: "DM Mono, monospace", textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "0.75rem", color: "#7a7d82", marginBottom: "16px" }}>PROCESS</p>
+          <h2 style={{ fontSize: "2.5rem", fontWeight: 600, color: "#e8e6e3", margin: "0 0 64px 0", letterSpacing: "-0.01em" }}>Three steps to court-ready evidence</h2>
+          
+          <div style={{ display: "flex", gap: "24px", flexWrap: "wrap", position: "relative" }}>
+            {STEPS.map((s, i) => (
+              <div key={s.num} style={{ flex: "1 1 250px", backgroundColor: "#181b20", border: "1px solid rgba(255,255,255,0.08)", padding: "32px", borderRadius: "6px", position: "relative" }}>
+                <span style={{ fontFamily: "DM Mono, monospace", fontSize: "2rem", color: "rgba(255,255,255,0.1)", fontWeight: 700, position: "absolute", top: "16px", right: "24px" }}>{s.num}</span>
+                <h3 style={{ fontSize: "1.25rem", fontWeight: 500, color: "#e8e6e3", marginBottom: "12px", marginTop: "24px" }}>{s.title}</h3>
+                <p style={{ fontSize: "0.875rem", color: "#7a7d82", lineHeight: 1.5, margin: 0 }}>{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 4. FEATURES GRID */}
+      <section id="features" ref={featRef} className="fade-up" style={{ padding: "96px 24px" }}>
+        <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
+          <p className="eyebrow" style={{ fontFamily: "DM Mono, monospace", textTransform: "uppercase", letterSpacing: "0.05em", fontSize: "0.75rem", color: "#7a7d82", marginBottom: "16px", textAlign: "center" }}>CAPABILITIES</p>
+          <h2 style={{ fontSize: "2.5rem", fontWeight: 600, color: "#e8e6e3", margin: "0 0 64px 0", letterSpacing: "-0.01em", textAlign: "center" }}>Built for forensic integrity</h2>
+          
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "24px" }}>
+            {FEATURES.map((f, i) => (
+              <div key={f.title} style={{ backgroundColor: "#181b20", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", padding: "32px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div style={{ width: "32px", height: "32px", color: f.color }}>
+                  {FeatureIcons[f.icon as keyof typeof FeatureIcons]}
+                </div>
+                <h3 style={{ fontSize: "1.125rem", fontWeight: 500, color: "#e8e6e3", margin: 0 }}>{f.title}</h3>
+                <p style={{ fontSize: "0.875rem", color: "#7a7d82", lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 5. SECURITY / HASH INTEGRITY */}
+      <section id="security" ref={secRef} className="fade-up" style={{ padding: "96px 24px", backgroundColor: "#0a0c0e", borderTop: "1px solid rgba(255,255,255,0.06)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ maxWidth: "1200px", margin: "0 auto", display: "flex", flexWrap: "wrap", gap: "64px", alignItems: "center" }}>
+          <div style={{ flex: "1 1 400px" }}>
+            <h2 style={{ fontSize: "2.5rem", fontWeight: 600, color: "#e8e6e3", margin: "0 0 32px 0", letterSpacing: "-0.01em" }}>Trust built into every byte</h2>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "16px" }}>
               {[
-                "SHA-256 fingerprinting — computed server-side, never client-side",
-                "Immutable audit log — every action timestamped with IP address",
-                "Role-based access control — four scoped operator roles",
+                "SHA-256 computed server-side, never client-side",
+                "Immutable audit log timestamped with IP address",
+                "Four scoped operator roles for strict access control",
                 "JWT authentication with configurable token expiry",
-                "PostgreSQL on Neon — encrypted at rest and in transit",
-                "Public verification — no account required for hash lookup",
-              ].map((item) => (
-                <li key={item} className="land-check-item">
-                  <span className="land-check-icon" aria-hidden="true">✓</span>
+                "Encrypted storage and transmission",
+              ].map((item, i) => (
+                <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: "12px", fontSize: "1rem", color: "#7a7d82" }}>
+                  <span style={{ color: "#4abe94", marginTop: "2px" }}>✓</span>
                   {item}
                 </li>
               ))}
             </ul>
           </div>
-          <div className="land-security-right fade-up" aria-hidden="true">
-            <div className="land-verify-mockup">
-              <div className="land-verify-header">
-                <span className="land-verify-check">✓</span>
-                <div>
-                  <p className="land-verify-title">Integrity confirmed</p>
-                  <p className="land-verify-sub">Hash matches registered evidence</p>
-                </div>
+          
+          <div style={{ flex: "1 1 400px", backgroundColor: "#181b20", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "6px", padding: "32px", boxShadow: "0 20px 40px rgba(0,0,0,0.4)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "24px" }}>
+              <div style={{ width: "40px", height: "40px", borderRadius: "50%", backgroundColor: "rgba(181, 245, 66, 0.1)", color: "#b5f542", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.25rem" }}>✓</div>
+              <div>
+                <h3 style={{ fontSize: "1.25rem", fontWeight: 500, color: "#e8e6e3", margin: "0 0 4px 0" }}>Integrity confirmed</h3>
+                <p style={{ fontSize: "0.875rem", color: "#7a7d82", margin: 0 }}>Hash matches registered evidence</p>
               </div>
-              <div className="land-verify-hash">
-                <span className="land-verify-hash-label">SHA-256</span>
-                <code>9f86d081884c7d659a2feaa0c55ad015<br />a3bf4f1b2b0b822cd15d6c15b0f00a08</code>
-              </div>
-              <div className="land-verify-meta">
-                <div>
-                  <span>Registered</span>
-                  <p>25 Aug 2026, 09:14</p>
-                </div>
-                <div>
-                  <span>Status</span>
-                  <p className="land-verify-status">Verified</p>
-                </div>
-              </div>
+            </div>
+            <div style={{ backgroundColor: "#0a0c0e", padding: "16px", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.06)", marginBottom: "24px" }}>
+              <p style={{ fontFamily: "DM Mono, monospace", fontSize: "0.75rem", color: "#7a7d82", marginBottom: "8px", textTransform: "uppercase" }}>SHA-256</p>
+              <code style={{ fontFamily: "DM Mono, monospace", fontSize: "0.875rem", color: "#e8e6e3", wordBreak: "break-all", lineHeight: 1.5 }}>
+                9f86d081884c7d659a2feaa0c55ad015<br/>a3bf4f1b2b0b822cd15d6c15b0f00a08
+              </code>
+            </div>
+            <div style={{ textAlign: "center" }}>
+              <p style={{ fontSize: "0.65rem", color: "#7a7d82" }}>Product preview — not real data</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── Final CTA ────────────────────────────────────────────── */}
-      <section className="land-cta-band" ref={ctaRef}>
-        <div className="land-container land-cta-inner fade-up">
-          <h2 className="land-cta-headline">
-            Ready to build an unbreakable evidence record?
-          </h2>
-          <p className="land-cta-sub">
-            Start for free. No credit card. Court-ready from day one.
-          </p>
-          <a href="/login" className="btn btn-xl land-cta-btn land-cta-glow">
-            Get started — it&rsquo;s free
+      {/* 6. PUBLIC VERIFICATION SECTION */}
+      <section ref={pubRef} className="fade-up" style={{ padding: "96px 24px", textAlign: "center" }}>
+        <div style={{ maxWidth: "800px", margin: "0 auto", backgroundColor: "#1e2228", padding: "48px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.08)" }}>
+          <h2 style={{ fontSize: "2rem", fontWeight: 600, color: "#e8e6e3", margin: "0 0 16px 0", letterSpacing: "-0.01em" }}>Public Verification</h2>
+          <p style={{ fontSize: "1.125rem", color: "#7a7d82", margin: "0 0 32px 0" }}>Anyone can verify evidence integrity — no account required.</p>
+          <a href="/verify" style={{ backgroundColor: "#181b20", color: "#e8e6e3", padding: "12px 24px", borderRadius: "4px", textDecoration: "none", fontSize: "1rem", fontWeight: 500, border: "1px solid rgba(255,255,255,0.16)", display: "inline-block" }}>
+            Go to verification tool →
           </a>
         </div>
       </section>
 
-      {/* ── Footer ───────────────────────────────────────────────── */}
-      <footer className="land-footer">
-        <div className="land-container land-footer-inner">
-          <div className="land-footer-brand">
-            <a href="/" className="land-logo" aria-label="EviChain home">
-              <span className="land-logo-mark land-logo-mark--sm" aria-hidden="true">E</span>
-              <span className="land-logo-name">EviChain</span>
+      {/* 7. FINAL CTA */}
+      <section ref={ctaRef} className="fade-up" style={{ padding: "96px 24px", background: "linear-gradient(180deg, #0f1114 0%, #0d1e18 100%)", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+          <h2 style={{ fontSize: "3rem", fontWeight: 700, color: "#e8e6e3", margin: "0 0 24px 0", letterSpacing: "-0.02em", lineHeight: 1.1 }}>Ready to build an unbreakable evidence record?</h2>
+          <a href="/login" style={{ backgroundColor: "#4abe94", color: "#000", padding: "16px 32px", borderRadius: "4px", textDecoration: "none", fontSize: "1.125rem", fontWeight: 500, display: "inline-block", marginTop: "16px" }}>
+            Open the vault
+          </a>
+        </div>
+      </section>
+
+      {/* 8. FOOTER */}
+      <footer style={{ backgroundColor: "#0a0c0e", padding: "64px 24px 32px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        <div style={{ maxWidth: "1200px", margin: "0 auto", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "48px", paddingBottom: "48px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+          <div style={{ gridColumn: "1 / -1", maxWidth: "300px" }}>
+            <a href="/" style={{ display: "flex", alignItems: "center", gap: "12px", textDecoration: "none", color: "inherit", marginBottom: "16px" }}>
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "32px", height: "32px", backgroundColor: "#181b20", border: "1px solid rgba(255,255,255,0.16)", borderRadius: "4px", fontWeight: "bold", color: "#4abe94", fontFamily: "DM Mono, monospace" }}>E</span>
+              <span style={{ fontWeight: 600, fontSize: "1.125rem", letterSpacing: "-0.01em" }}>EviChain</span>
             </a>
-            <p className="land-footer-desc">
+            <p style={{ fontSize: "0.875rem", color: "#7a7d82", lineHeight: 1.6, margin: 0 }}>
               SHA-256 verified chain-of-custody evidence management for investigative teams.
             </p>
           </div>
-          <nav aria-label="Product links">
-            <p className="land-footer-heading">Product</p>
-            <ul>
-              <li><a href="/evidence">Evidence Registry</a></li>
-              <li><a href="/cases">Case Management</a></li>
-              <li><a href="/audit">Audit Ledger</a></li>
-              <li><a href="/reports">Reports</a></li>
+          
+          <div>
+            <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#e8e6e3", marginBottom: "16px" }}>Product</p>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px", fontSize: "0.875rem" }}>
+              <li><a href="/dashboard" style={{ color: "#7a7d82", textDecoration: "none" }}>Dashboard</a></li>
+              <li><a href="/cases" style={{ color: "#7a7d82", textDecoration: "none" }}>Case Management</a></li>
             </ul>
-          </nav>
-          <nav aria-label="Resources links">
-            <p className="land-footer-heading">Resources</p>
-            <ul>
-              <li><a href="/verify">Public Verify</a></li>
-              <li><a href="/login">Sign in</a></li>
-              <li><a href="/server/README.md">API Docs</a></li>
-            </ul>
-          </nav>
-          <nav aria-label="Legal links">
-            <p className="land-footer-heading">Legal</p>
-            <ul>
-              <li><a href="#">Privacy Policy</a></li>
-              <li><a href="#">Terms of Service</a></li>
-            </ul>
-          </nav>
-        </div>
-        <div className="land-footer-bar">
-          <div className="land-container">
-            <p>© 2026 EviChain. Built for Smart India Hackathon.</p>
           </div>
+
+          <div>
+            <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#e8e6e3", marginBottom: "16px" }}>Resources</p>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px", fontSize: "0.875rem" }}>
+              <li><a href="/verify" style={{ color: "#7a7d82", textDecoration: "none" }}>Public Verify</a></li>
+              <li><a href="/login" style={{ color: "#7a7d82", textDecoration: "none" }}>Sign in</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "#e8e6e3", marginBottom: "16px" }}>Legal</p>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "12px", fontSize: "0.875rem" }}>
+              <li><a href="#" style={{ color: "#7a7d82", textDecoration: "none" }}>Privacy Policy</a></li>
+              <li><a href="#" style={{ color: "#7a7d82", textDecoration: "none" }}>Terms of Service</a></li>
+            </ul>
+          </div>
+        </div>
+        
+        <div style={{ maxWidth: "1200px", margin: "0 auto", paddingTop: "32px", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.75rem", color: "#7a7d82", flexWrap: "wrap", gap: "16px" }}>
+          <p style={{ margin: 0 }}>© 2026 EviChain. Built for Smart India Hackathon.</p>
         </div>
       </footer>
     </div>

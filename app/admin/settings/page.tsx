@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "../../auth-context";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 export default function AdminSettingsPage() {
   const { user, loading: authLoading } = useAuth();
@@ -15,11 +16,7 @@ export default function AdminSettingsPage() {
   const [refreshExpiry, setRefreshExpiry] = useState("7d");
   const [maintenanceMode, setMaintenanceMode] = useState(false);
 
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-    if (!authLoading && user && user.role !== "Administrator")
-      window.location.replace("/");
-  }, [authLoading, user]);
+  
 
   // Restore from localStorage
   useEffect(() => {
@@ -44,27 +41,20 @@ export default function AdminSettingsPage() {
     setTimeout(() => setSaved(false), 3000);
   }
 
-  if (authLoading) return <main className="cases-shell"><p className="cases-loading">Loading…</p></main>;
+  if (authLoading) return <WorkspaceShell breadcrumbs={[{ label: 'Admin', href: '/admin' }, { label: 'Settings' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}><p className="cases-loading">Loading…</p></div>
+</WorkspaceShell>;
 
   return (
-    <main className="cases-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Admin · Settings</small></span>
-        </a>
-        <nav className="ev-nav">
-          <a href="/admin">← Admin</a>
-          <a href="/admin/users">Users</a>
-          {user && <span className="operator" aria-label={user.name}>{user.initials}</span>}
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: 'Admin', href: '/admin' }, { label: 'Settings' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
+      
 
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: "24px" }}>
         <div>
-          <p className="eyebrow">SYSTEM ADMINISTRATION</p>
-          <h1>System settings</h1>
-          <p className="ev-page-sub">
+          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>SYSTEM ADMINISTRATION</p>
+          <h1 style={{ color: "var(--text-primary)", fontSize: "24px", margin: "8px 0" }}>System settings</h1>
+          <p className="ev-page-sub" style={{ color: "var(--text-secondary)" }}>
             Platform configuration. Changes are saved locally until a backend
             settings endpoint is implemented.
           </p>
@@ -76,7 +66,7 @@ export default function AdminSettingsPage() {
 
           {/* Upload settings */}
           <div className="form-section">
-            <h2>Upload limits</h2>
+            <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Upload limits</h2>
             <div className="form-group">
               <label htmlFor="max-file-size">Maximum file size (MB)</label>
               <input
@@ -96,7 +86,7 @@ export default function AdminSettingsPage() {
 
           {/* Auth settings */}
           <div className="form-section">
-            <h2>Authentication</h2>
+            <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Authentication</h2>
             <div className="case-form-row">
               <div className="form-group">
                 <label htmlFor="jwt-expiry">Access token expiry</label>
@@ -125,7 +115,7 @@ export default function AdminSettingsPage() {
 
           {/* CORS settings */}
           <div className="form-section">
-            <h2>CORS / origin</h2>
+            <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>CORS / origin</h2>
             <div className="form-group">
               <label htmlFor="cors-origin">Allowed frontend origin</label>
               <input
@@ -144,7 +134,7 @@ export default function AdminSettingsPage() {
 
           {/* Maintenance */}
           <div className="form-section">
-            <h2>Maintenance</h2>
+            <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Maintenance</h2>
             <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
               <input
                 id="maintenance-mode"
@@ -175,7 +165,7 @@ export default function AdminSettingsPage() {
 
         {/* Info sidebar */}
         <aside className="info-section">
-          <h2>Configuration notes</h2>
+          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Configuration notes</h2>
           <ol className="info-steps">
             <li>
               <span className="info-step-num" aria-hidden="true">1</span>
@@ -208,6 +198,7 @@ export default function AdminSettingsPage() {
           </ol>
         </aside>
       </div>
-    </main>
+    </div>
+</WorkspaceShell>
   );
 }

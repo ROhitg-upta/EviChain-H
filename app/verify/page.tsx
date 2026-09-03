@@ -10,9 +10,7 @@ type ResultState =
   | { status: "error"; message: string };
 
 function fmtDate(iso: string) {
-  return new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium", timeStyle: "short",
-  }).format(new Date(iso));
+  return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 }
 
 export default function PublicVerifyPage() {
@@ -21,304 +19,229 @@ export default function PublicVerifyPage() {
   const [hashInput, setHashInput] = useState("");
   const [result, setResult] = useState<ResultState>({ status: "idle" });
 
-  function reset() {
-    setResult({ status: "idle" });
-    setFile(null);
-    setHashInput("");
-  }
+  function reset() { setResult({ status: "idle" }); setFile(null); setHashInput(""); }
 
   async function handleFileSubmit(e: FormEvent) {
     e.preventDefault();
     if (!file) return;
     setResult({ status: "loading" });
-    try {
-      const data = await verifyFile(file);
-      setResult({ status: "done", data });
-    } catch (err: unknown) {
-      setResult({
-        status: "error",
-        message: err instanceof Error ? err.message : "Verification failed",
-      });
-    }
+    try { setResult({ status: "done", data: await verifyFile(file) }); }
+    catch (err: unknown) { setResult({ status: "error", message: err instanceof Error ? err.message : "Verification failed" }); }
   }
 
   async function handleHashSubmit(e: FormEvent) {
     e.preventDefault();
     const h = hashInput.trim().toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(h)) {
-      setResult({
-        status: "error",
-        message: "Invalid SHA-256 hash — must be exactly 64 hexadecimal characters (0–9, a–f).",
-      });
+      setResult({ status: "error", message: "Invalid SHA-256 hash — must be exactly 64 hexadecimal characters (0–9, a–f)." });
       return;
     }
     setResult({ status: "loading" });
-    try {
-      const data = await verifyByHash(h);
-      setResult({ status: "done", data });
-    } catch (err: unknown) {
-      setResult({
-        status: "error",
-        message: err instanceof Error ? err.message : "Lookup failed",
-      });
-    }
+    try { setResult({ status: "done", data: await verifyByHash(h) }); }
+    catch (err: unknown) { setResult({ status: "error", message: err instanceof Error ? err.message : "Lookup failed" }); }
   }
 
+  const s = {
+    root: { minHeight: "100vh", background: "var(--surface-base)", color: "var(--text-primary)", fontFamily: "var(--font-sans)" } as React.CSSProperties,
+    header: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 32px", borderBottom: "1px solid var(--border-default)" } as React.CSSProperties,
+    brand: { display: "flex", alignItems: "center", gap: 12, textDecoration: "none", color: "var(--text-primary)" } as React.CSSProperties,
+    mark: { width: 32, height: 32, display: "grid", placeItems: "center", background: "var(--brand-600)", color: "var(--neutral-50)", borderRadius: "var(--radius-md)", fontSize: 16, fontWeight: 800 } as React.CSSProperties,
+    container: { maxWidth: 640, margin: "0 auto", padding: "48px 24px" } as React.CSSProperties,
+    card: { background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-md)", padding: 28 } as React.CSSProperties,
+    tab: (active: boolean): React.CSSProperties => ({
+      padding: "10px 20px", background: active ? "var(--surface-raised)" : "transparent",
+      border: active ? "1px solid var(--border-default)" : "1px solid transparent",
+      borderBottom: active ? "1px solid var(--surface-raised)" : "1px solid var(--border-default)",
+      borderRadius: "var(--radius-sm) var(--radius-sm) 0 0",
+      color: active ? "var(--text-primary)" : "var(--text-secondary)",
+      fontWeight: active ? 600 : 400, fontSize: "var(--text-sm)", cursor: "pointer",
+      fontFamily: "var(--font-sans)", marginBottom: -1,
+    }),
+  };
+
   return (
-    <main className="verify-shell">
-      <header className="public-topbar">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">E</span>
+    <main style={s.root}>
+      {/* Header */}
+      <header style={s.header}>
+        <a href="/" style={s.brand} aria-label="EviChain home">
+          <span style={s.mark} aria-hidden="true">E</span>
           <div>
-            <strong>EviChain</strong>
-            <small>Public verification portal</small>
+            <strong style={{ fontSize: "var(--text-md)", fontWeight: 700, letterSpacing: "var(--tracking-tight)" }}>EviChain</strong>
+            <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-secondary)", letterSpacing: "0.08em", textTransform: "uppercase" as const }}>
+              Public verification
+            </div>
           </div>
-        </div>
-        <nav className="case-nav" aria-label="Primary navigation">
-          <a href="/">Dashboard</a>
-          <a href="/evidence">Registry</a>
-          <a href="/cases">Cases</a>
+        </a>
+        <nav style={{ display: "flex", gap: 16, fontSize: "var(--text-sm)" }} aria-label="Navigation">
+          <a href="/" style={{ color: "var(--text-secondary)", textDecoration: "none" }}>Home</a>
+          <a href="/login" style={{ color: "var(--text-secondary)", textDecoration: "none" }}>Sign in</a>
         </nav>
       </header>
 
-      {/* Hero */}
-      <section className="verify-hero">
-        <p className="eyebrow">INDEPENDENT VERIFICATION</p>
-        <h1>Verify evidence integrity</h1>
-        <p className="verify-hero-sub">
-          Check whether a file or hash matches a registered evidence record in the
-          EviChain database. No account required.
-        </p>
-        <div className="verify-info" aria-label="How verification works">
-          <span className="verify-info-icon" aria-hidden="true">ℹ</span>
-          <p>
-            <strong>How it works:</strong> When you upload a file, its SHA-256
-            fingerprint is computed and compared against every registered evidence
-            record. A match means the file is byte-for-byte identical to what was
-            originally registered. A mismatch does not confirm tampering on its own —
-            the file may simply be unregistered.
+      <div style={s.container}>
+        {/* Hero */}
+        <div style={{ marginBottom: 32, textAlign: "center" as const }}>
+          <p className="eyebrow" style={{ marginBottom: 8 }}>INDEPENDENT VERIFICATION</p>
+          <h1 style={{ margin: 0, fontSize: "var(--text-2xl)", fontWeight: 800, letterSpacing: "var(--tracking-tight)", color: "var(--text-primary)" }}>
+            Verify evidence integrity
+          </h1>
+          <p style={{ margin: "12px auto 0", maxWidth: 480, fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+            Check whether a file or hash matches a registered evidence record. No account required.
           </p>
         </div>
-      </section>
 
-      {/* Tabs */}
-      <div className="login-tabs verify-tabs" role="tablist" aria-label="Verification method">
-        <button
-          className={`tab ${activeTab === "file" ? "active" : ""}`}
-          role="tab"
-          aria-selected={activeTab === "file"}
-          aria-controls="verify-panel-file"
-          id="verify-tab-file"
-          onClick={() => { setActiveTab("file"); reset(); }}
-        >
-          Upload a file
-        </button>
-        <button
-          className={`tab ${activeTab === "hash" ? "active" : ""}`}
-          role="tab"
-          aria-selected={activeTab === "hash"}
-          aria-controls="verify-panel-hash"
-          id="verify-tab-hash"
-          onClick={() => { setActiveTab("hash"); reset(); }}
-        >
-          Enter a hash
-        </button>
-      </div>
-
-      {/* File panel */}
-      <div
-        id="verify-panel-file"
-        role="tabpanel"
-        aria-labelledby="verify-tab-file"
-        hidden={activeTab !== "file"}
-      >
-        <form className="verify-card" onSubmit={handleFileSubmit} aria-label="Verify file by upload">
-          <h2>Upload the file to verify</h2>
-          <p className="verify-card-desc">
-            Select the original file. EviChain computes its SHA-256 fingerprint
-            and checks it against every registered evidence record. The file is
-            sent to our server for verification — it is never stored.
+        {/* Info box */}
+        <div style={{
+          display: "flex", gap: 12, padding: "14px 18px", marginBottom: 24,
+          background: "var(--accent-active-dim)", border: "1px solid var(--accent-active-border)",
+          borderRadius: "var(--radius-md)", fontSize: "var(--text-sm)", color: "var(--accent-active)",
+        }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>ℹ</span>
+          <p style={{ margin: 0, lineHeight: 1.5 }}>
+            <strong>How it works:</strong> SHA-256 is computed server-side from the uploaded bytes and compared against all registered evidence records.
           </p>
-          <label htmlFor="verify-file-pick" className="ev-file-pick-label">
-            <input
-              id="verify-file-pick"
-              type="file"
-              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                setFile(e.target.files?.[0] ?? null)
-              }
-              aria-label="Choose a file to verify"
-            />
-          </label>
-          {file && (
-            <p className="verify-file-info" aria-live="polite">
-              Selected: <strong>{file.name}</strong>{" "}
-              ({(file.size / 1024 / 1024).toFixed(2)} MB)
-            </p>
-          )}
-          <button
-            className="button button-primary button-full"
-            type="submit"
-            disabled={!file || result.status === "loading"}
-            aria-disabled={!file || result.status === "loading"}
-          >
-            {result.status === "loading"
-              ? <span className="loading-spinner">Verifying…</span>
-              : "Verify file"}
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", borderBottom: "1px solid var(--border-default)", marginBottom: 0 }} role="tablist" aria-label="Verification method">
+          <button style={s.tab(activeTab === "file")} role="tab" aria-selected={activeTab === "file"} onClick={() => { setActiveTab("file"); reset(); }}>
+            Upload a file
           </button>
-        </form>
-      </div>
+          <button style={s.tab(activeTab === "hash")} role="tab" aria-selected={activeTab === "hash"} onClick={() => { setActiveTab("hash"); reset(); }}>
+            Enter a hash
+          </button>
+        </div>
 
-      {/* Hash panel */}
-      <div
-        id="verify-panel-hash"
-        role="tabpanel"
-        aria-labelledby="verify-tab-hash"
-        hidden={activeTab !== "hash"}
-      >
-        <form className="verify-card" onSubmit={handleHashSubmit} aria-label="Verify by SHA-256 hash">
-          <h2>Enter the SHA-256 hash</h2>
-          <p className="verify-card-desc">
-            Paste the 64-character hexadecimal fingerprint of the evidence file.
-            The format is validated before the lookup is sent.
-          </p>
-          <div className="form-group">
-            <label htmlFor="hash-input">SHA-256 fingerprint</label>
+        {/* File panel */}
+        <div hidden={activeTab !== "file"} role="tabpanel" style={{ ...s.card, borderTop: "none", borderRadius: "0 0 var(--radius-md) var(--radius-md)" }}>
+          <form onSubmit={handleFileSubmit} aria-label="Verify file by upload">
+            <h2 style={{ margin: "0 0 8px", fontSize: "var(--text-md)", fontWeight: 700, color: "var(--text-primary)" }}>Upload the file to verify</h2>
+            <p style={{ margin: "0 0 20px", fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+              The file is sent to our server for SHA-256 computation — it is never stored.
+            </p>
             <input
-              id="hash-input"
-              type="text"
-              value={hashInput}
-              onChange={(e) => setHashInput(e.target.value)}
-              placeholder="9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-              maxLength={64}
-              spellCheck={false}
-              autoComplete="off"
-              aria-describedby="hash-input-hint"
+              type="file"
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setFile(e.target.files?.[0] ?? null)}
+              aria-label="Choose a file to verify"
+              style={{ display: "block", width: "100%", padding: 12, background: "var(--surface-sunken)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-md)", color: "var(--text-primary)", fontSize: "var(--text-sm)" }}
             />
-            <small id="hash-input-hint" className="ev-field-hint">
+            {file && (
+              <p style={{ margin: "12px 0 0", fontSize: "var(--text-sm)", color: "var(--text-secondary)" }} aria-live="polite">
+                Selected: <strong style={{ color: "var(--text-primary)" }}>{file.name}</strong> ({(file.size / 1024 / 1024).toFixed(2)} MB)
+              </p>
+            )}
+            <button type="submit" className="btn btn-primary btn-lg" disabled={!file || result.status === "loading"} style={{ width: "100%", marginTop: 20 }}>
+              {result.status === "loading" ? "Verifying…" : "Verify file"}
+            </button>
+          </form>
+        </div>
+
+        {/* Hash panel */}
+        <div hidden={activeTab !== "hash"} role="tabpanel" style={{ ...s.card, borderTop: "none", borderRadius: "0 0 var(--radius-md) var(--radius-md)" }}>
+          <form onSubmit={handleHashSubmit} aria-label="Verify by SHA-256 hash">
+            <h2 style={{ margin: "0 0 8px", fontSize: "var(--text-md)", fontWeight: 700, color: "var(--text-primary)" }}>Enter the SHA-256 hash</h2>
+            <p style={{ margin: "0 0 20px", fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+              Paste the 64-character hexadecimal fingerprint.
+            </p>
+            <label style={{ display: "block", marginBottom: 6, fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-primary)" }}>SHA-256 fingerprint</label>
+            <input
+              type="text" value={hashInput} onChange={(e) => setHashInput(e.target.value)}
+              placeholder="9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+              maxLength={64} spellCheck={false} autoComplete="off"
+              className="input" style={{ fontFamily: "var(--font-mono)", fontSize: 13, letterSpacing: "0.03em" }}
+            />
+            <small style={{ display: "block", marginTop: 6, fontSize: 11, color: "var(--text-disabled)" }}>
               Exactly 64 hexadecimal characters (0–9, a–f)
             </small>
-          </div>
-          <button
-            className="button button-primary button-full"
-            type="submit"
-            disabled={result.status === "loading"}
-          >
-            {result.status === "loading"
-              ? <span className="loading-spinner">Checking…</span>
-              : "Verify hash"}
-          </button>
-        </form>
+            <button type="submit" className="btn btn-primary btn-lg" disabled={result.status === "loading"} style={{ width: "100%", marginTop: 20 }}>
+              {result.status === "loading" ? "Checking…" : "Verify hash"}
+            </button>
+          </form>
+        </div>
+
+        {/* Results */}
+        <section style={{ marginTop: 24 }} aria-live="polite">
+          {result.status === "idle" && (
+            <div style={{ textAlign: "center" as const, padding: "32px 16px", color: "var(--text-disabled)", fontSize: "var(--text-sm)" }}>
+              Submit a file or hash above to see verification results.
+            </div>
+          )}
+
+          {result.status === "error" && (
+            <div role="alert" style={{
+              padding: 20, background: "var(--accent-danger-dim)", border: "1px solid var(--accent-danger-border)",
+              borderRadius: "var(--radius-md)", textAlign: "center" as const,
+            }}>
+              <strong style={{ display: "block", color: "var(--accent-danger)", marginBottom: 8 }}>Verification error</strong>
+              <p style={{ margin: "0 0 16px", fontSize: "var(--text-sm)", color: "var(--accent-danger)", opacity: 0.9 }}>{result.message}</p>
+              <button className="btn btn-secondary btn-sm" onClick={reset}>Try again</button>
+            </div>
+          )}
+
+          {result.status === "done" && !result.data.matched && (
+            <div style={{
+              padding: 28, background: "var(--surface-raised)", border: "1px solid var(--accent-danger-border)",
+              borderRadius: "var(--radius-md)", textAlign: "center" as const,
+            }}>
+              <div style={{ width: 48, height: 48, margin: "0 auto 16px", display: "grid", placeItems: "center", borderRadius: "50%", background: "var(--accent-danger-dim)", color: "var(--accent-danger)", fontSize: 24, fontWeight: 800 }}>✕</div>
+              <h2 style={{ margin: "0 0 8px", fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-primary)" }}>No matching record found</h2>
+              <p style={{ margin: "0 0 16px", fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                The fingerprint does not match any registered evidence.
+              </p>
+              <div style={{ margin: "16px 0", padding: 16, background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", textAlign: "left" as const }}>
+                <span className="eyebrow" style={{ display: "block", marginBottom: 8 }}>SUBMITTED SHA-256</span>
+                <code style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--neutral-700)", wordBreak: "break-all" as const, lineHeight: 1.6 }}>{result.data.sha256}</code>
+              </div>
+              <button className="btn btn-secondary btn-md" onClick={reset}>Verify another</button>
+            </div>
+          )}
+
+          {result.status === "done" && result.data.matched && result.data.evidence && (
+            <div style={{
+              padding: 28, background: "var(--surface-raised)", border: "1px solid var(--accent-verified-border)",
+              borderRadius: "var(--radius-md)",
+            }}>
+              <div style={{ textAlign: "center" as const, marginBottom: 20 }}>
+                <div style={{ width: 48, height: 48, margin: "0 auto 16px", display: "grid", placeItems: "center", borderRadius: "50%", background: "var(--accent-verified-dim)", color: "var(--accent-verified)", fontSize: 24, fontWeight: 800 }}>✓</div>
+                <h2 style={{ margin: "0 0 8px", fontSize: "var(--text-lg)", fontWeight: 700, color: "var(--text-primary)" }}>Evidence integrity confirmed</h2>
+                <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
+                  SHA-256 fingerprint matches a registered evidence record.
+                </p>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 24px", padding: "20px 0", borderTop: "1px solid var(--border-subtle)", borderBottom: "1px solid var(--border-subtle)" }}>
+                {[
+                  { label: "Evidence name", value: result.data.evidence.name },
+                  { label: "File type", value: result.data.evidence.type },
+                  { label: "Owner", value: result.data.evidence.ownerOrg },
+                  { label: "Status", value: result.data.evidence.status },
+                  { label: "Registered", value: fmtDate(result.data.evidence.registeredAt) },
+                ].map(item => (
+                  <div key={item.label}>
+                    <dt style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.1em", textTransform: "uppercase" as const, color: "var(--text-disabled)", marginBottom: 4 }}>{item.label}</dt>
+                    <dd style={{ margin: 0, fontSize: "var(--text-sm)", fontWeight: 600, color: "var(--text-primary)" }}>{item.value}</dd>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ margin: "20px 0", padding: 16, background: "var(--surface-sunken)", borderRadius: "var(--radius-md)" }}>
+                <span className="eyebrow" style={{ display: "block", marginBottom: 8, color: "var(--accent-verified)" }}>VERIFIED SHA-256</span>
+                <code style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--neutral-700)", wordBreak: "break-all" as const, lineHeight: 1.6 }}>{result.data.sha256}</code>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+                <a className="btn btn-primary btn-md" href={`/evidence/${result.data.evidence.id}`}>View full record →</a>
+                <button className="btn btn-secondary btn-md" onClick={reset}>Verify another</button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Footer */}
+        <footer style={{ marginTop: 48, paddingTop: 20, borderTop: "1px solid var(--border-subtle)", textAlign: "center" as const, fontSize: 11, color: "var(--text-disabled)", fontFamily: "var(--font-mono)" }}>
+          EviChain public verification · No account required · SHA-256 computed server-side
+        </footer>
       </div>
-
-      {/* Result panel */}
-      <section className="verify-result-section" aria-live="polite">
-        {result.status === "idle" && (
-          <div className="verify-result verify-result--idle">
-            <p>Submit a file or hash above to see verification results.</p>
-          </div>
-        )}
-
-        {result.status === "error" && (
-          <div className="verify-result verify-result--error" role="alert">
-            <strong>Verification error</strong>
-            <p>{result.message}</p>
-            <button className="button button-secondary small-button" onClick={reset}>
-              Try again
-            </button>
-          </div>
-        )}
-
-        {result.status === "done" && !result.data.matched && (
-          <div className="verify-result verify-result--fail">
-            <div className="verify-result-icon" aria-hidden="true">✕</div>
-            <h2>No matching record found</h2>
-            <p>
-              The SHA-256 fingerprint{" "}
-              <code>{result.data.sha256.slice(0, 16)}…{result.data.sha256.slice(-8)}</code>{" "}
-              does not match any registered evidence in the EviChain database.
-            </p>
-            <p className="verify-result-note">
-              This could mean the file is unregistered, has been modified since
-              registration, or is unrelated to any case on file.
-            </p>
-            <div className="verify-computed-hash">
-              <span className="eyebrow">SUBMITTED SHA-256</span>
-              <code>{result.data.sha256}</code>
-            </div>
-            <button className="button button-secondary small-button" onClick={reset}>
-              Verify another
-            </button>
-          </div>
-        )}
-
-        {result.status === "done" && result.data.matched && result.data.evidence && (
-          <div className="verify-result verify-result--match">
-            <div className="verify-result-icon" aria-hidden="true">✓</div>
-            <h2>Evidence integrity confirmed</h2>
-            <p>
-              This file matches a registered evidence record. The SHA-256
-              fingerprint is identical to what was recorded at the time of
-              registration.
-            </p>
-
-            <dl className="verify-match-meta">
-              <div>
-                <dt>Evidence name</dt>
-                <dd>{result.data.evidence.name}</dd>
-              </div>
-              <div>
-                <dt>File type</dt>
-                <dd>{result.data.evidence.type}</dd>
-              </div>
-              <div>
-                <dt>Owner organisation</dt>
-                <dd>{result.data.evidence.ownerOrg}</dd>
-              </div>
-              <div>
-                <dt>Registry status</dt>
-                <dd>
-                  <span
-                    className={`status ${result.data.evidence.status.toLowerCase()}`}
-                    aria-label={`Status: ${result.data.evidence.status}`}
-                  >
-                    <span aria-hidden="true" />
-                    {result.data.evidence.status.charAt(0) +
-                      result.data.evidence.status.slice(1).toLowerCase()}
-                  </span>
-                </dd>
-              </div>
-              <div>
-                <dt>Registered</dt>
-                <dd>{fmtDate(result.data.evidence.registeredAt)}</dd>
-              </div>
-            </dl>
-
-            <div className="verify-computed-hash">
-              <span className="eyebrow">VERIFIED SHA-256</span>
-              <code>{result.data.sha256}</code>
-            </div>
-
-            <div className="verify-result-actions">
-              <a
-                className="button button-primary small-button"
-                href={`/evidence/${result.data.evidence.id}`}
-              >
-                View full record →
-              </a>
-              <button className="button button-secondary small-button" onClick={reset}>
-                Verify another
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
-
-      <footer className="public-footer">
-        <p>
-          EviChain public verification · No account required ·
-          SHA-256 computed server-side from uploaded bytes
-        </p>
-      </footer>
     </main>
   );
 }

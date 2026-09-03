@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../auth-context";
 import { exportAuditLogs, type ExportAuditParams } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 export default function AuditExportPage() {
   const { user, loading: authLoading, accessToken } = useAuth();
@@ -54,21 +55,17 @@ export default function AuditExportPage() {
   }
 
   if (authLoading) {
-    return <main className="audit-shell"><p className="audit-loading">Loading…</p></main>;
+    return (
+      <WorkspaceShell breadcrumbs={[{ label: "Audit", href: "/audit" }, { label: "Export" }]}>
+        <div style={{ display: "grid", gap: 12 }}>
+          <div className="skeleton" style={{ height: 200, borderRadius: "var(--radius-md)" }} />
+        </div>
+      </WorkspaceShell>
+    );
   }
 
   return (
-    <main className="audit-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Audit export</small></span>
-        </a>
-        <nav className="ev-nav">
-          <a href="/audit">← Audit logs</a>
-          <a href="/evidence">Evidence</a>
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: "Audit", href: "/audit" }, { label: "Export" }]}>
 
       <div className="page-header">
         <div>
@@ -265,6 +262,6 @@ export default function AuditExportPage() {
           </div>
         </aside>
       </div>
-    </main>
+    </WorkspaceShell>
   );
 }

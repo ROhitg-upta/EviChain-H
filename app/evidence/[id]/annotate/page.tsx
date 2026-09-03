@@ -1,18 +1,22 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import { useAuth } from "../../../auth-context";
 import { useNotifications } from "../../../notification-context";
 import {
-  getEvidenceById, getEvidenceAnnotations, saveEvidenceAnnotations,
+  getEvidenceById, getEvidenceAnnotations, saveEvidenceAnnotations, downloadEvidence,
   type EvidenceAnnotation, type EvidenceRecord,
 } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 type ToolType = "select" | "arrow" | "highlight" | "text" | "freehand";
 
 const COLORS = ["#ef4444", "#22c55e", "#3b82f6", "#eab308", "#a855f7", "#06b6d4"];
 
-export default function EvidenceAnnotatePage({ params }: { params: { id: string } }) {
+export default function EvidenceAnnotatePage() {
+  const routeParams = useParams();
+  const id = typeof routeParams?.id === "string" ? routeParams.id : Array.isArray(routeParams?.id) ? routeParams.id[0] : "";
   const { user, loading: authLoading, accessToken } = useAuth();
   const { toast } = useNotifications();
 
@@ -27,26 +31,34 @@ export default function EvidenceAnnotatePage({ params }: { params: { id: string 
   const [textPos,     setTextPos]     = useState<{ x: number; y: number } | null>(null);
   const [textVal,     setTextVal]     = useState("");
   const [saving,      setSaving]      = useState(false);
+  const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null);
 
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const imgRef       = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-  }, [authLoading, user]);
-
-  useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || !id) return;
     setLoading(true);
     Promise.all([
-      getEvidenceById(accessToken, params.id),
-      getEvidenceAnnotations(accessToken, params.id),
+      getEvidenceById(accessToken, id),
+      getEvidenceAnnotations(accessToken, id),
     ])
-      .then(([ev, anns]) => { setEvidence(ev); setAnnotations(anns); })
+      .then(async ([ev, anns]) => {
+        setEvidence(ev);
+        setAnnotations(anns);
+        if (ev.mimeType?.startsWith("image/")) {
+          try {
+            const { blob } = await downloadEvidence(accessToken, id);
+            setImageBlobUrl(URL.createObjectURL(blob));
+          } catch {
+            // fallback
+          }
+        }
+      })
       .catch(() => toast({ type: "error", title: "Failed to load evidence" }))
       .finally(() => setLoading(false));
-  }, [accessToken, params.id]);
+  }, [accessToken, id]);
 
   // Redraw canvas whenever image/annotations/visibility changes
   const redraw = useCallback(() => {
@@ -58,81 +70,131 @@ export default function EvidenceAnnotatePage({ params }: { params: { id: string 
 
     canvas.width  = containerRef.current?.clientWidth  || 800;
     canvas.height = img.naturalHeight
-      ? (img.naturalHeight / img.naturalWidth) * canvas.width
+      ? Math.round((canvas.width / img.naturalWidth) * img.naturalHeight)
       : 500;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    // Draw background image
+    try {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    } catch {
+      // tainted or not ready
+    }
 
     if (!showAnns) return;
 
-    for (const ann of annotations) {
-      const W = canvas.width, H = canvas.height;
+    // Draw saved annotations
+    annotations.forEach((ann) => {
       ctx.strokeStyle = ann.color;
       ctx.fillStyle   = ann.color;
-      ctx.lineWidth   = 3;
-      ctx.lineCap = ctx.lineJoin = "round";
+      ctx.lineWidth   = 2;
 
-      if ((ann.type === "freehand" || ann.type === "arrow") && ann.points.length >= 2) {
+      if (ann.type === "freehand" && ann.points.length > 1) {
         ctx.beginPath();
-        ctx.moveTo(ann.points[0].x * W, ann.points[0].y * H);
-        ann.points.slice(1).forEach((p) => ctx.lineTo(p.x * W, p.y * H));
-
-        if (ann.type === "arrow") {
-          const last = ann.points[ann.points.length - 1];
-          const prev = ann.points[ann.points.length - 2];
-          const angle = Math.atan2((last.y - prev.y) * H, (last.x - prev.x) * W);
-          const L = 15;
-          ctx.lineTo(last.x * W - L * Math.cos(angle - Math.PI / 6), last.y * H - L * Math.sin(angle - Math.PI / 6));
-          ctx.moveTo(last.x * W, last.y * H);
-          ctx.lineTo(last.x * W - L * Math.cos(angle + Math.PI / 6), last.y * H - L * Math.sin(angle + Math.PI / 6));
-        }
+        ann.points.forEach((pt, i) => {
+          const x = pt.x * canvas.width;
+          const y = pt.y * canvas.height;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
         ctx.stroke();
-
+      } else if (ann.type === "arrow" && ann.points.length >= 2) {
+        const [p1, p2] = ann.points;
+        const x1 = p1.x * canvas.width,  y1 = p1.y * canvas.height;
+        const x2 = p2.x * canvas.width,  y2 = p2.y * canvas.height;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        // Arrowhead
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - 12 * Math.cos(angle - Math.PI / 6), y2 - 12 * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(x2 - 12 * Math.cos(angle + Math.PI / 6), y2 - 12 * Math.sin(angle + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
       } else if (ann.type === "highlight" && ann.points.length >= 2) {
-        const xs = ann.points.map((p) => p.x * W);
-        const ys = ann.points.map((p) => p.y * H);
-        ctx.globalAlpha = 0.3;
-        ctx.fillRect(Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
-        ctx.globalAlpha = 1;
-
-      } else if (ann.type === "text" && ann.text) {
-        ctx.font = "14px Inter, sans-serif";
-        ctx.fillText(ann.text, ann.points[0].x * W, ann.points[0].y * H);
+        const [p1, p2] = ann.points;
+        const x1 = Math.min(p1.x, p2.x) * canvas.width;
+        const y1 = Math.min(p1.y, p2.y) * canvas.height;
+        const w  = Math.abs(p2.x - p1.x) * canvas.width;
+        const h  = Math.abs(p2.y - p1.y) * canvas.height;
+        ctx.fillStyle = ann.color + "44"; // 25% opacity
+        ctx.fillRect(x1, y1, w, h);
+        ctx.strokeRect(x1, y1, w, h);
+      } else if (ann.type === "text" && ann.points[0] && ann.text) {
+        ctx.font = "bold 14px var(--font-sans, Inter)";
+        ctx.fillText(ann.text, ann.points[0].x * canvas.width, ann.points[0].y * canvas.height);
       }
+    });
+
+    // Draw current in-progress stroke
+    if (isDrawing && curPoints.length > 1) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = 2;
+      ctx.beginPath();
+      curPoints.forEach((pt, i) => {
+        const x = pt.x * canvas.width;
+        const y = pt.y * canvas.height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
     }
-  }, [annotations, showAnns]);
+  }, [annotations, showAnns, isDrawing, curPoints, color]);
 
   useEffect(() => { redraw(); }, [redraw]);
 
-  function coords(e: React.MouseEvent<HTMLCanvasElement>) {
-    const r = canvasRef.current!.getBoundingClientRect();
+  // Window resize re-draw
+  useEffect(() => {
+    window.addEventListener("resize", redraw);
+    return () => window.removeEventListener("resize", redraw);
+  }, [redraw]);
+
+  function getCanvasCoords(e: React.MouseEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
     return {
-      x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
-      y: Math.max(0, Math.min(1, (e.clientY - r.top)  / r.height)),
+      x: (e.clientX - rect.left) / canvas.width,
+      y: (e.clientY - rect.top)  / canvas.height,
     };
   }
 
   function onMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
     if (activeTool === "select") return;
-    const c = coords(e);
+    const pt = getCanvasCoords(e);
+
+    if (activeTool === "text") {
+      setTextPos(pt);
+      setTextVal("");
+      return;
+    }
+
     setIsDrawing(true);
-    if (activeTool === "text") { setTextPos(c); setTextVal(""); }
-    else setCurPoints([c]);
+    setCurPoints([pt]);
   }
 
   function onMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
-    if (!isDrawing || activeTool === "select" || activeTool === "text") return;
-    setCurPoints((p) => [...p, coords(e)]);
+    if (!isDrawing) return;
+    const pt = getCanvasCoords(e);
+    if (activeTool === "freehand") {
+      setCurPoints((prev) => [...prev, pt]);
+    } else {
+      // arrow or highlight: keep start point, update end point
+      setCurPoints((prev) => [prev[0], pt]);
+    }
   }
 
   function onMouseUp() {
     if (!isDrawing) return;
     setIsDrawing(false);
-    if (activeTool !== "text" && curPoints.length > 0) {
+    if (curPoints.length >= 2) {
       setAnnotations((prev) => [...prev, {
         id:        `tmp_${Date.now()}`,
-        type:      activeTool,
+        type:      activeTool as "arrow" | "highlight" | "freehand",
         points:    curPoints,
         color,
         createdAt: new Date().toISOString(),
@@ -164,7 +226,7 @@ export default function EvidenceAnnotatePage({ params }: { params: { id: string 
     try {
       await saveEvidenceAnnotations(
         accessToken,
-        params.id,
+        id,
         annotations.map((a) => ({ ...a, text: a.text ?? undefined })),
       );
       toast({ type: "success", title: "Annotations saved" });
@@ -181,41 +243,45 @@ export default function EvidenceAnnotatePage({ params }: { params: { id: string 
     a.click();
   }
 
-  if (authLoading || loading) return <main className="evidence-shell"><p className="cases-loading">Loading…</p></main>;
-  if (!evidence) return <main className="evidence-shell"><p className="error-message">Evidence not found.</p></main>;
+  if (authLoading || loading) {
+    return (
+      <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: "Annotate" }]}>
+        <div style={{ padding: "40px", textAlign: "center", color: "var(--text-secondary)" }}>Loading…</div>
+      </WorkspaceShell>
+    );
+  }
+
+  if (!evidence) {
+    return (
+      <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: "Annotate" }]}>
+        <div style={{ padding: "40px", color: "var(--accent-danger)" }}>Evidence not found.</div>
+      </WorkspaceShell>
+    );
+  }
 
   const isImage = evidence.mimeType?.startsWith("image/");
 
   return (
-    <main className="evidence-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Annotate evidence</small></span>
-        </a>
-        <nav className="ev-nav">
-          <a href={`/evidence/${params.id}`}>← Back to record</a>
-          {user && <span className="operator" aria-label={user.name}>{user.initials}</span>}
-        </nav>
-      </header>
-
-      <div className="page-header">
+    <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: evidence.name, href: `/evidence/${id}` }, { label: "Annotate" }]}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "var(--space-6)", borderBottom: "1px solid var(--border-default)", paddingBottom: "var(--space-4)" }}>
         <div>
-          <p className="eyebrow">EVIDENCE ANNOTATION</p>
-          <h1>{evidence.name}</h1>
+          <p className="eyebrow" style={{ color: "var(--text-disabled)", marginBottom: "4px" }}>EVIDENCE ANNOTATION</p>
+          <h1 style={{ margin: 0, fontSize: "var(--text-xl)", fontWeight: 700, color: "var(--text-primary)" }}>{evidence.name}</h1>
         </div>
+        <a href={`/evidence/${id}`} className="btn btn-secondary btn-sm">← Back to record</a>
       </div>
 
       <div className="annotation-layout">
         {/* Toolbar */}
-        <aside className="annotation-toolbar">
-          <h3>Tools</h3>
+        <aside className="annotation-toolbar" style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-lg)" }}>
+          <h3 style={{ color: "var(--text-primary)", fontSize: "var(--text-sm)", fontWeight: "var(--weight-bold)", marginBottom: "var(--space-4)" }}>Tools</h3>
 
           <div className="tool-group">
             {(["select","freehand","arrow","highlight","text"] as ToolType[]).map((t) => (
               <button
                 key={t}
                 className={`tool-btn${activeTool === t ? " active" : ""}`}
+                style={{ background: activeTool === t ? "var(--brand-600)" : "var(--surface-sunken)", color: activeTool === t ? "var(--neutral-50)" : "var(--text-secondary)", borderColor: "var(--border-default)" }}
                 onClick={() => setActiveTool(t)}
                 aria-label={t}
                 aria-pressed={activeTool === t}
@@ -226,13 +292,13 @@ export default function EvidenceAnnotatePage({ params }: { params: { id: string 
           </div>
 
           <div className="tool-group">
-            <label>Color</label>
+            <label style={{ color: "var(--text-disabled)", fontSize: "var(--text-xs)", fontWeight: "var(--weight-bold)", letterSpacing: "var(--tracking-wider)", textTransform: "uppercase", display: "block", marginBottom: "var(--space-2)" }}>Color</label>
             <div className="color-picker">
               {COLORS.map((c) => (
                 <button
                   key={c}
                   className={`color-swatch${color === c ? " active" : ""}`}
-                  style={{ background: c }}
+                  style={{ background: c, borderColor: color === c ? "var(--text-primary)" : "transparent" }}
                   onClick={() => setColor(c)}
                   aria-label={c}
                 />
@@ -241,43 +307,45 @@ export default function EvidenceAnnotatePage({ params }: { params: { id: string 
           </div>
 
           <div className="tool-group">
-            <label className="toggle-label">
-              <input type="checkbox" checked={showAnns} onChange={(e) => setShowAnns(e.target.checked)} />
+            <label className="toggle-label" style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", display: "flex", alignItems: "center", gap: "var(--space-2)", cursor: "pointer" }}>
+              <input type="checkbox" checked={showAnns} onChange={(e) => setShowAnns(e.target.checked)} style={{ accentColor: "var(--brand-600)" }} />
               <span>Show annotations</span>
             </label>
           </div>
 
-          <div className="tool-actions">
-            <button className="button button-primary button-full" onClick={handleSave} disabled={saving}>
+          <div className="tool-actions" style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+            <button className="btn btn-primary btn-full" onClick={handleSave} disabled={saving}>
               {saving ? <span className="loading-spinner">Saving…</span> : "Save"}
             </button>
-            <button className="button button-secondary button-full" onClick={() => { if (confirm("Clear all annotations?")) setAnnotations([]); }}>
+            <button className="btn btn-secondary btn-full" onClick={() => { if (confirm("Clear all annotations?")) setAnnotations([]); }}>
               Clear all
             </button>
-            <button className="button button-secondary button-full" onClick={handleDownload}>
+            <button className="btn btn-secondary btn-full" onClick={handleDownload}>
               Download PNG
             </button>
           </div>
         </aside>
 
         {/* Canvas */}
-        <section className="annotation-canvas-container" ref={containerRef}>
+        <section className="annotation-canvas-container" ref={containerRef} style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-lg)" }}>
           {isImage ? (
             <>
               {/* Hidden img to load the evidence file */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                style={{ display: "none" }}
-                src={`/api/evidence/${params.id}/file`}
-                ref={(el) => {
-                  if (!el) return;
-                  imgRef.current = el;
-                  if (el.complete) redraw();
-                  else el.onload = redraw;
-                }}
-              />
+              {imageBlobUrl && (
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  style={{ display: "none" }}
+                  src={imageBlobUrl}
+                  ref={(el) => {
+                    if (!el) return;
+                    imgRef.current = el;
+                    if (el.complete) redraw();
+                    else el.onload = redraw;
+                  }}
+                />
+              )}
               <canvas
                 ref={canvasRef}
                 className="annotation-canvas"
@@ -295,17 +363,17 @@ export default function EvidenceAnnotatePage({ params }: { params: { id: string 
                     onChange={(e) => setTextVal(e.target.value)}
                     placeholder="Enter text…"
                     autoFocus
-                    style={{ position: "absolute", left: `${textPos.x * 100}%`, top: `${textPos.y * 100}%` }}
+                    style={{ position: "absolute", left: `${textPos.x * 100}%`, top: `${textPos.y * 100}%`, background: "var(--surface-sunken)", color: "var(--text-primary)", border: "1px solid var(--brand-600)", padding: "4px 8px", borderRadius: "4px" }}
                   />
                 </form>
               )}
             </>
           ) : (
-            <div className="non-image-notice">
-              <div className="notice-icon" aria-hidden="true">◈</div>
-              <h3>Preview unavailable</h3>
-              <p>{evidence.mimeType} files cannot be previewed inline.</p>
-              <a className="button button-primary" href={`/evidence/${params.id}`}>
+            <div className="non-image-notice" style={{ padding: "40px", textAlign: "center" }}>
+              <div className="notice-icon" aria-hidden="true" style={{ fontSize: "32px", color: "var(--text-disabled)", marginBottom: "12px" }}>◈</div>
+              <h3 style={{ color: "var(--text-primary)", fontSize: "var(--text-md)" }}>Preview unavailable</h3>
+              <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", marginBottom: "16px" }}>{evidence.mimeType} files cannot be previewed inline.</p>
+              <a className="btn btn-primary" href={`/evidence/${id}`}>
                 Back to record
               </a>
             </div>
@@ -313,29 +381,29 @@ export default function EvidenceAnnotatePage({ params }: { params: { id: string 
         </section>
 
         {/* Annotation list */}
-        <aside className="annotation-list">
-          <h3>Annotations ({annotations.length})</h3>
+        <aside className="annotation-list" style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "var(--radius-lg)" }}>
+          <h3 style={{ color: "var(--text-primary)", fontSize: "var(--text-sm)", fontWeight: "var(--weight-bold)", marginBottom: "var(--space-4)" }}>Annotations ({annotations.length})</h3>
           {annotations.length === 0 ? (
-            <p className="ev-muted" style={{ fontSize: "var(--text-sm)" }}>No annotations yet.</p>
+            <p style={{ color: "var(--text-disabled)", fontSize: "var(--text-sm)" }}>No annotations yet.</p>
           ) : (
-            <div className="annotation-items">
+            <div className="annotation-items" style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}>
               {annotations.map((ann) => (
-                <div key={ann.id} className="annotation-item-card">
-                  <div className="annotation-item-header">
+                <div key={ann.id} className="annotation-item-card" style={{ background: "var(--surface-sunken)", border: "1px solid var(--border-subtle)", borderRadius: "var(--radius-md)", padding: "var(--space-3)" }}>
+                  <div className="annotation-item-header" style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
                     <span className={`annotation-type-badge type-${ann.type}`}>{ann.type}</span>
-                    <span className="annotation-user">{ann.user.name}</span>
+                    <span className="annotation-user" style={{ color: "var(--text-primary)", fontSize: "var(--text-xs)", fontWeight: 600 }}>{ann.user.name}</span>
                   </div>
-                  <p className="annotation-time">
+                  <p className="annotation-time" style={{ color: "var(--text-disabled)", fontSize: "11px", margin: "2px 0 4px" }}>
                     {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" })
                       .format(new Date(ann.createdAt))}
                   </p>
-                  {ann.text && <p className="annotation-text">{ann.text}</p>}
+                  {ann.text && <p className="annotation-text" style={{ color: "var(--text-secondary)", fontSize: "var(--text-xs)", margin: 0 }}>{ann.text}</p>}
                 </div>
               ))}
             </div>
           )}
         </aside>
       </div>
-    </main>
+    </WorkspaceShell>
   );
 }

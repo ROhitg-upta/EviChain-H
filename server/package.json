@@ -2,7 +2,9 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "test": "tsx tests/module2.test.ts",
     "start": "node dist/index.js"
+
   },
   "devDependencies": {
     "@prisma/client": "^5.22.0",

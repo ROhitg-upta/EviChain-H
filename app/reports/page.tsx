@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth-context";
 import { getReportsData, exportReportPdf, type ReportData } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 // ── Colour palette (no external deps) ────────────────────────────
 const COLORS = ["#15845d", "#4caf50", "#2196f3", "#ff9800", "#9c27b0", "#f44336"];
@@ -178,9 +179,7 @@ export default function ReportsPage() {
   const [range, setRange] = useState<"30" | "90" | "365">("90");
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-  }, [authLoading, user]);
+  
 
   useEffect(() => {
     if (!accessToken) return;
@@ -221,67 +220,65 @@ export default function ReportsPage() {
 
   // ── Auth loading ────────────────────────────────────────────────
   if (authLoading) {
-    return <main className="reports-shell"><div className="audit-loading">Loading…</div></main>;
+    return <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}><div className="audit-loading">Loading…</div></div>
+</WorkspaceShell>;
   }
 
   // ── Not signed in ───────────────────────────────────────────────
   if (!user) {
     return (
-      <main className="reports-shell">
+      <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
         <section className="ev-empty-state" style={{ marginTop: 80 }}>
           <strong>Sign in required</strong>
           <p>You need to be logged in to view reports.</p>
           <a className="button button-primary" href="/login">Go to login</a>
         </section>
-      </main>
+      </div>
+</WorkspaceShell>
     );
   }
 
   // ── Data loading ────────────────────────────────────────────────
   if (loading) {
     return (
-      <main className="reports-shell">
+      <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
         <div className="reports-loading">
           <span className="reports-spinner" aria-hidden="true" />
           <p>Loading analytics…</p>
         </div>
-      </main>
+      </div>
+</WorkspaceShell>
     );
   }
 
   // ── Error ───────────────────────────────────────────────────────
   if (error || !data) {
     return (
-      <main className="reports-shell">
-        <div className="error-message" role="alert">{error || "Failed to load report data"}</div>
+      <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
+        <div className="error-message" style={{ color: "var(--accent-danger)", border: "1px solid var(--accent-danger)", background: "rgba(244, 63, 94, 0.1)", padding: "12px", borderRadius: "6px" }} role="alert">{error || "Failed to load report data"}</div>
         <a className="button button-secondary" href="/" style={{ marginTop: 16 }}>← Back</a>
-      </main>
+      </div>
+</WorkspaceShell>
     );
   }
 
   // ── Main render ─────────────────────────────────────────────────
   return (
-    <main className="reports-shell">
+    <WorkspaceShell breadcrumbs={[{ label: 'Reports' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
       {/* Top bar */}
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Reports & analytics</small></span>
-        </a>
-        <nav className="ev-nav" aria-label="Primary navigation">
-          <a href="/evidence">Evidence</a>
-          <a href="/cases">Cases</a>
-          <a href="/audit">Audit</a>
-          {user && <span className="operator" aria-label={user.name}>{user.initials}</span>}
-        </nav>
-      </header>
+      
 
       {/* Page header */}
       <div className="reports-page-header">
         <div>
-          <p className="eyebrow">ANALYTICS</p>
-          <h1>Reports & analytics</h1>
-          <p className="ev-page-sub">
+          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>ANALYTICS</p>
+          <h1 style={{ color: "var(--text-primary)", fontSize: "24px", margin: "8px 0" }}>Reports & analytics</h1>
+          <p className="ev-page-sub" style={{ color: "var(--text-secondary)" }}>
             Case trends, evidence breakdown, and system insights.
           </p>
         </div>
@@ -311,7 +308,7 @@ export default function ReportsPage() {
 
       {/* Stats strip */}
       <section className="stats-grid" aria-label="Summary statistics">
-        <div className="stat-card">
+        <div className="stat-card" style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "16px", color: "var(--text-primary)" }}>
           <span>Total cases</span>
           <strong>{String(data.totalCases).padStart(2, "0")}</strong>
           <small>In selected period</small>
@@ -342,17 +339,17 @@ export default function ReportsPage() {
       {/* Charts grid */}
       <div className="reports-grid">
         <section className="report-card">
-          <h2>Case volume trend</h2>
+          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Case volume trend</h2>
           <LineTrend data={data.casesByMonth} />
         </section>
 
         <section className="report-card">
-          <h2>Evidence volume trend</h2>
+          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Evidence volume trend</h2>
           <LineTrend data={data.evidenceByMonth} />
         </section>
 
         <section className="report-card">
-          <h2>Cases by status</h2>
+          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Cases by status</h2>
           {data.casesByStatus.length === 0 ? (
             <p className="ev-muted" style={{ fontSize: 12 }}>No case data for this period.</p>
           ) : (
@@ -365,7 +362,7 @@ export default function ReportsPage() {
         </section>
 
         <section className="report-card">
-          <h2>Evidence by file type</h2>
+          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Evidence by file type</h2>
           {data.evidenceByType.length === 0 ? (
             <p className="ev-muted" style={{ fontSize: 12 }}>No evidence data for this period.</p>
           ) : (
@@ -378,7 +375,7 @@ export default function ReportsPage() {
         </section>
 
         <section className="report-card report-card--full">
-          <h2>Top contributors</h2>
+          <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Top contributors</h2>
           {data.topUploaders.length === 0 ? (
             <p className="ev-muted" style={{ fontSize: 12 }}>No upload data for this period.</p>
           ) : (
@@ -390,6 +387,7 @@ export default function ReportsPage() {
           )}
         </section>
       </div>
-    </main>
+    </div>
+</WorkspaceShell>
   );
 }

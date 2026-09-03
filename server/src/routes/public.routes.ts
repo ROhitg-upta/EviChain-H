@@ -79,9 +79,9 @@ router.post("/verify", (req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// GET /public/verify/:sha256  — Hash lookup
+// GET /public/verify/:sha256 or /public/verify/hash/:sha256  — Hash lookup
 // ═══════════════════════════════════════════════════════════════════
-router.get("/verify/:sha256", async (req, res) => {
+router.get(["/verify/:sha256", "/verify/hash/:sha256"], async (req, res) => {
   try {
     const raw = req.params["sha256"] as string;
 

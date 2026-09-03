@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth-context";
 import { getAuditLogs, getCases, getEvidence, type AuditLog, type CaseRecord, type EvidenceRecord } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 export default function AdminDashboard() {
   const { user, loading: authLoading, accessToken } = useAuth();
@@ -13,11 +14,7 @@ export default function AdminDashboard() {
   const [fetching, setFetching]     = useState(true);
   const [error, setError]           = useState("");
 
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-    if (!authLoading && user && user.role !== "Administrator")
-      window.location.replace("/");
-  }, [authLoading, user]);
+  
 
   useEffect(() => {
     if (!accessToken) return;
@@ -50,43 +47,28 @@ export default function AdminDashboard() {
     }).length,
   }), [cases, evidence, auditLogs]);
 
-  if (authLoading) return <main className="cases-shell"><p className="cases-loading">Loading…</p></main>;
+  if (authLoading) return <WorkspaceShell breadcrumbs={[{ label: 'Admin' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}><p className="cases-loading">Loading…</p></div>
+</WorkspaceShell>;
 
   return (
-    <main className="cases-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Admin panel</small></span>
-        </a>
-        <nav className="ev-nav" aria-label="Admin navigation">
-          <a href="/admin/users">Users</a>
-          <a href="/admin/settings">Settings</a>
-          <a href="/audit">Audit logs</a>
-          <a href="/evidence">Evidence</a>
-          <a href="/cases">Cases</a>
-          {user && (
-            <span className="ev-user-badge">
-              <span className="operator" aria-hidden="true">{user.initials}</span>
-              <span>{user.name}</span>
-            </span>
-          )}
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: 'Admin' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
+      
 
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: "24px" }}>
         <div>
-          <p className="eyebrow">SYSTEM ADMINISTRATION</p>
-          <h1>Admin dashboard</h1>
-          <p className="ev-page-sub">System overview for administrators.</p>
+          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>SYSTEM ADMINISTRATION</p>
+          <h1 style={{ color: "var(--text-primary)", fontSize: "24px", margin: "8px 0" }}>Admin dashboard</h1>
+          <p className="ev-page-sub" style={{ color: "var(--text-secondary)" }}>System overview for administrators.</p>
         </div>
       </div>
 
-      {error && <div className="error-message" role="alert">{error}</div>}
+      {error && <div className="error-message" style={{ color: "var(--accent-danger)", border: "1px solid var(--accent-danger)", background: "rgba(244, 63, 94, 0.1)", padding: "12px", borderRadius: "6px" }} role="alert">{error}</div>}
 
       {/* Stats */}
       <section className="stats-grid" aria-label="System statistics">
-        <div className="stat-card">
+        <div className="stat-card" style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "16px", color: "var(--text-primary)" }}>
           <span>Cases</span>
           <strong>{String(stats.cases).padStart(2, "0")}</strong>
           <small>{stats.openCases} active</small>
@@ -133,10 +115,10 @@ export default function AdminDashboard() {
       </div>
 
       {/* Recent audit activity */}
-      <div className="panel" style={{ marginTop: 24, overflow: "hidden" }}>
-        <div style={{ padding: "20px 24px 14px", borderBottom: "1px solid var(--line)" }}>
-          <p className="eyebrow" style={{ marginBottom: 4 }}>RECENT ACTIVITY</p>
-          <h2 style={{ margin: 0, fontSize: 17, letterSpacing: "-0.04em" }}>Latest audit events</h2>
+      <div className="panel" style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "16px", marginTop: 24, overflow: "hidden" }}>
+        <div style={{ padding: "20px 24px 14px", borderBottom: "1px solid var(--border-subtle)" }}>
+          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase", marginBottom: 4 }}>RECENT ACTIVITY</p>
+          <h2 style={{ margin: 0, fontSize: 18, letterSpacing: "-0.04em", color: "var(--text-primary)", marginBottom: "16px" }}>Latest audit events</h2>
         </div>
 
         {fetching ? (
@@ -146,7 +128,7 @@ export default function AdminDashboard() {
         ) : (
           <ol className="audit-timeline" aria-label="Recent audit events">
             {auditLogs.slice(0, 10).map((log) => (
-              <li key={log.id} className="timeline-item">
+              <li key={log.id} className="timeline-item" style={{ borderBottom: "1px solid var(--border-subtle)", padding: "12px 0" }}>
                 <span className="action-badge action--default" aria-hidden="true">•</span>
                 <div className="timeline-item-body">
                   <div className="timeline-item-header">
@@ -172,6 +154,7 @@ export default function AdminDashboard() {
           </ol>
         )}
       </div>
-    </main>
+    </div>
+</WorkspaceShell>
   );
 }

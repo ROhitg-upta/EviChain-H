@@ -35,3 +35,42 @@ export function requireRole(...roles: string[]) {
     next();
   };
 }
+
+/** Security headers middleware */
+export function securityHeaders(_req: Request, res: Response, next: NextFunction) {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (process.env.NODE_ENV === "production") {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+}
+
+/** In-memory rate limiting middleware */
+export function createRateLimiter(options: { windowMs: number; max: number; message?: string }) {
+  const requests = new Map<string, { count: number; resetTime: number }>();
+
+  return (req: Request, res: Response, next: NextFunction) => {
+    const ip = req.ip || (req.headers["x-forwarded-for"] as string) || "unknown";
+    const now = Date.now();
+    const record = requests.get(ip);
+
+    if (!record || now > record.resetTime) {
+      requests.set(ip, { count: 1, resetTime: now + options.windowMs });
+      return next();
+    }
+
+    record.count++;
+    if (record.count > options.max) {
+      const retrySec = Math.ceil((record.resetTime - now) / 1000);
+      res.setHeader("Retry-After", String(retrySec));
+      return res.status(429).json({
+        error: options.message || "Too many requests. Please try again later.",
+      });
+    }
+
+    next();
+  };
+}

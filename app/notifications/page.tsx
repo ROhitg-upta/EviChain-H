@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useAuth } from "../auth-context";
 import { useNotifications } from "../notification-context";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 const TYPE_CLASS: Record<string, string> = {
   success: "case-status--active",
@@ -23,9 +24,7 @@ export default function NotificationsPage() {
   const { notifications, unreadCount, markAllAsRead, dismiss, loading, refresh } =
     useNotifications();
 
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-  }, [authLoading, user]);
+  
 
   useEffect(() => {
     refresh();
@@ -33,32 +32,21 @@ export default function NotificationsPage() {
   }, []);
 
   if (authLoading) {
-    return <main className="cases-shell"><p className="cases-loading">Loading…</p></main>;
+    return <WorkspaceShell breadcrumbs={[{ label: 'Notifications' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}><p className="cases-loading">Loading…</p></div>
+</WorkspaceShell>;
   }
 
   return (
-    <main className="cases-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Notifications</small></span>
-        </a>
-        <nav className="ev-nav">
-          <a href="/">← Dashboard</a>
-          {user && (
-            <span className="ev-user-badge">
-              <span className="operator" aria-hidden="true">{user.initials}</span>
-              <span>{user.name}</span>
-            </span>
-          )}
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: 'Notifications' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
+      
 
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: "24px" }}>
         <div>
-          <p className="eyebrow">ACTIVITY FEED</p>
-          <h1>Notifications</h1>
-          <p className="ev-page-sub">
+          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>ACTIVITY FEED</p>
+          <h1 style={{ color: "var(--text-primary)", fontSize: "24px", margin: "8px 0" }}>Notifications</h1>
+          <p className="ev-page-sub" style={{ color: "var(--text-secondary)" }}>
             {unreadCount > 0
               ? `${unreadCount} unread notification${unreadCount !== 1 ? "s" : ""}`
               : "All caught up."}
@@ -74,7 +62,7 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      <div className="panel" style={{ overflow: "hidden" }}>
+      <div className="panel" style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "16px", overflow: "hidden" }}>
         {loading ? (
           <p className="audit-loading" role="status">Loading notifications…</p>
         ) : notifications.length === 0 ? (
@@ -129,6 +117,7 @@ export default function NotificationsPage() {
           </ul>
         )}
       </div>
-    </main>
+    </div>
+</WorkspaceShell>
   );
 }

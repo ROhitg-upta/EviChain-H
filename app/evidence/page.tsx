@@ -6,9 +6,9 @@ import {
   getCases, getEvidence, bulkDownloadEvidence, downloadEvidenceCsv,
   type CaseRecord, type EvidenceRecord,
 } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
-
-// ── Helpers ───────────────────────────────────────────────────────
+/* ── Helpers ───────────────────────────────────────────────────────── */
 
 function fmtBytes(n: number) {
   if (n === 0) return "0 B";
@@ -18,14 +18,10 @@ function fmtBytes(n: number) {
 }
 
 function fmtDate(iso: string) {
-  return new Intl.DateTimeFormat("en-IN", {
-    dateStyle: "medium", timeStyle: "short",
-  }).format(new Date(iso));
+  return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(iso));
 }
 
-function shortHash(h: string) {
-  return `${h.slice(0, 8)}…${h.slice(-6)}`;
-}
+function shortHash(h: string) { return `${h.slice(0, 12)}…${h.slice(-6)}`; }
 
 function mimeCategory(mime: string): string {
   if (mime.startsWith("image/")) return "Image";
@@ -48,11 +44,14 @@ function mimeIcon(mime: string) {
   return map[cat] ?? "FILE";
 }
 
-const STATUS_CLASS: Record<string, string> = {
-  PENDING: "pending", VERIFIED: "verified", FLAGGED: "flagged", SEALED: "sealed",
+const STATUS_COLORS: Record<string, { color: string; bg: string; border: string }> = {
+  VERIFIED: { color: "var(--accent-verified)", bg: "var(--accent-verified-dim)", border: "var(--accent-verified-border)" },
+  PENDING:  { color: "var(--accent-pending)",  bg: "var(--accent-pending-dim)",  border: "var(--accent-pending-border)" },
+  FLAGGED:  { color: "var(--accent-danger)",   bg: "var(--accent-danger-dim)",   border: "var(--accent-danger-border)" },
+  SEALED:   { color: "var(--accent-active)",   bg: "var(--accent-active-dim)",   border: "var(--accent-active-border)" },
 };
 
-// ── Component ─────────────────────────────────────────────────────
+/* ── Component ─────────────────────────────────────────────────────── */
 
 export default function EvidenceListPage() {
   const { user, loading: authLoading, accessToken } = useAuth();
@@ -62,14 +61,12 @@ export default function EvidenceListPage() {
   const [fetching, setFetching] = useState(true);
   const [fetchError, setFetchError] = useState("");
 
-  // Filters
   const [search, setSearch] = useState("");
   const [caseFilter, setCaseFilter] = useState("ALL");
   const [mimeFilter, setMimeFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [sortBy, setSortBy] = useState<"date" | "name" | "type" | "case">("date");
 
-  // Bulk operations & Export
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [downloadingZip, setDownloadingZip] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
@@ -78,18 +75,14 @@ export default function EvidenceListPage() {
     if (e) e.stopPropagation();
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
 
   function toggleSelectAll() {
-    if (selectedIds.size === filtered.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filtered.map((r) => r.id)));
-    }
+    if (selectedIds.size === filtered.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filtered.map((r) => r.id)));
   }
 
   async function handleBulkDownload() {
@@ -99,17 +92,11 @@ export default function EvidenceListPage() {
       const blob = await bulkDownloadEvidence(accessToken, Array.from(selectedIds));
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `evidence-bundle-${new Date().toISOString().slice(0, 10)}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      a.href = url; a.download = `evidence-bundle-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a); a.click(); a.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Bulk download error:", err);
-    } finally {
-      setDownloadingZip(false);
-    }
+    } catch (err) { console.error("Bulk download error:", err); }
+    finally { setDownloadingZip(false); }
   }
 
   async function handleExportCsv() {
@@ -123,50 +110,32 @@ export default function EvidenceListPage() {
       });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url;
-      a.download = `evidence-export-${new Date().toISOString().slice(0, 10)}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      a.href = url; a.download = `evidence-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
       window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("CSV export error:", err);
-    } finally {
-      setExportingCsv(false);
-    }
+    } catch (err) { console.error("CSV export error:", err); }
+    finally { setExportingCsv(false); }
   }
 
-  // Redirect if not authed
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-  }, [authLoading, user]);
-
-
-  // Fetch data
   useEffect(() => {
     if (!accessToken) return;
     setFetching(true);
     Promise.all([getEvidence(accessToken), getCases(accessToken)])
       .then(([ev, cs]) => { setRecords(ev); setCases(cs); })
-      .catch((err: unknown) =>
-        setFetchError(err instanceof Error ? err.message : "Failed to load data"),
-      )
+      .catch((err: unknown) => setFetchError(err instanceof Error ? err.message : "Failed to load data"))
       .finally(() => setFetching(false));
   }, [accessToken]);
 
-  // Derived category list for filter dropdown
   const categories = useMemo(() => {
     const set = new Set(records.map((r) => mimeCategory(r.mimeType)));
     return Array.from(set).sort();
   }, [records]);
 
-  // Filtered + sorted list
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return records
       .filter((r) => {
-        if (q && !`${r.id} ${r.name} ${r.ownerOrg} ${r.sha256} ${r.mimeType}`
-          .toLowerCase().includes(q)) return false;
+        if (q && !`${r.id} ${r.name} ${r.ownerOrg} ${r.sha256} ${r.mimeType}`.toLowerCase().includes(q)) return false;
         if (caseFilter !== "ALL" && r.caseId !== caseFilter) return false;
         if (mimeFilter !== "ALL" && mimeCategory(r.mimeType) !== mimeFilter) return false;
         if (statusFilter !== "ALL" && r.status !== statusFilter) return false;
@@ -180,7 +149,6 @@ export default function EvidenceListPage() {
       });
   }, [records, search, caseFilter, mimeFilter, statusFilter, sortBy]);
 
-  // Stats
   const stats = useMemo(() => ({
     total: records.length,
     verified: records.filter((r) => r.status === "VERIFIED").length,
@@ -188,199 +156,159 @@ export default function EvidenceListPage() {
     flagged: records.filter((r) => r.status === "FLAGGED").length,
   }), [records]);
 
-  if (authLoading) return <main className="evidence-shell"><p className="ev-loading">Loading…</p></main>;
+  if (authLoading) {
+    return (
+      <WorkspaceShell breadcrumbs={[{ label: "Evidence" }]}>
+        <div style={{ display: "grid", gap: 10 }}>
+          {[1,2,3,4].map(i => <div key={i} className="skeleton" style={{ height: 56, borderRadius: "var(--radius-md)" }} />)}
+        </div>
+      </WorkspaceShell>
+    );
+  }
+
+  const th: React.CSSProperties = {
+    padding: "10px 14px", fontSize: 10, fontFamily: "var(--font-mono)",
+    fontWeight: 500, letterSpacing: "0.08em", textTransform: "uppercase",
+    color: "var(--text-secondary)", textAlign: "left", borderBottom: "1px solid var(--border-default)",
+    whiteSpace: "nowrap",
+  };
+
+  const td: React.CSSProperties = {
+    padding: "12px 14px", fontSize: "var(--text-sm)", color: "var(--text-primary)",
+    borderBottom: "1px solid var(--border-subtle)", verticalAlign: "middle",
+  };
 
   return (
-    <main className="evidence-shell">
-      {/* Top bar */}
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/" aria-label="EviChain home">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span>
-            <strong>EviChain</strong>
-            <small>Evidence registry</small>
-          </span>
-        </a>
-        <nav className="ev-nav" aria-label="Primary navigation">
-          <a href="/evidence/new" className="button button-primary small-button">
-            + Upload evidence
-          </a>
-          <a href="/cases">Cases</a>
-          <a href="/verify">Public verify</a>
-          {user && (
-            <span className="ev-user-badge" aria-label={`Signed in as ${user.name}`}>
-              <span className="operator" aria-hidden="true">{user.initials}</span>
-              <span>{user.name}</span>
-            </span>
-          )}
-        </nav>
-      </header>
-
+    <WorkspaceShell breadcrumbs={[{ label: "Evidence" }]}>
       {/* Page header */}
-      <div className="page-header">
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+        paddingBottom: "var(--space-5)", marginBottom: "var(--space-5)",
+        borderBottom: "1px solid var(--border-default)", flexWrap: "wrap", gap: 12,
+      }}>
         <div>
-          <p className="eyebrow">EVIDENCE REGISTRY</p>
-          <h1>All evidence</h1>
-          <p className="ev-page-sub">
+          <p className="eyebrow" style={{ marginBottom: 6 }}>EVIDENCE REGISTRY</p>
+          <h1 style={{ margin: 0, fontSize: "var(--text-xl)", fontWeight: 700, letterSpacing: "var(--tracking-tight)", color: "var(--text-primary)" }}>
+            All evidence
+          </h1>
+          <p style={{ margin: "4px 0 0", fontSize: "var(--text-sm)", color: "var(--text-secondary)" }}>
             {records.length} record{records.length !== 1 ? "s" : ""} registered
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button
-            type="button"
-            className="button button-secondary small-button"
-            onClick={handleExportCsv}
-            disabled={exportingCsv}
-          >
+          <button type="button" className="btn btn-secondary btn-sm" onClick={handleExportCsv} disabled={exportingCsv}>
             {exportingCsv ? "Exporting…" : "Export CSV ↓"}
           </button>
-          <a href="/evidence/new" className="button button-primary small-button">
-            + Upload evidence
-          </a>
+          {user?.role !== "Auditor" && (
+            <a href="/evidence/new" className="btn btn-primary btn-sm">+ Upload</a>
+          )}
         </div>
       </div>
 
-
-      {/* Stats strip */}
-      <section className="ev-stats-strip" aria-label="Evidence summary">
-        <div className="ev-stat-item">
-          <span className="ev-stat-label">Total</span>
-          <strong className="ev-stat-value">{String(stats.total).padStart(2, "0")}</strong>
-          <small>Registered</small>
-        </div>
-        <div className="ev-stat-item ev-stat--green">
-          <span className="ev-stat-label">Verified</span>
-          <strong className="ev-stat-value">{String(stats.verified).padStart(2, "0")}</strong>
-          <small>Integrity confirmed</small>
-        </div>
-        <div className="ev-stat-item ev-stat--amber">
-          <span className="ev-stat-label">Pending</span>
-          <strong className="ev-stat-value">{String(stats.pending).padStart(2, "0")}</strong>
-          <small>Awaiting review</small>
-        </div>
-        <div className="ev-stat-item ev-stat--red">
-          <span className="ev-stat-label">Flagged</span>
-          <strong className="ev-stat-value">{String(stats.flagged).padStart(2, "0")}</strong>
-          <small>Requires attention</small>
-        </div>
-      </section>
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: "var(--space-5)" }}>
+        {[
+          { label: "Total", value: stats.total, color: "var(--text-primary)" },
+          { label: "Verified", value: stats.verified, color: "var(--accent-verified)" },
+          { label: "Pending", value: stats.pending, color: "var(--accent-pending)" },
+          { label: "Flagged", value: stats.flagged, color: "var(--accent-danger)" },
+        ].map(s => (
+          <div key={s.label} style={{
+            padding: "14px 16px", background: "var(--surface-raised)",
+            border: "1px solid var(--border-default)", borderRadius: "var(--radius-md)",
+          }}>
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 500, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-secondary)" }}>{s.label}</span>
+            <div style={{ fontSize: "var(--text-xl)", fontWeight: 800, color: s.color, letterSpacing: "var(--tracking-tight)", marginTop: 4 }}>
+              {String(s.value).padStart(2, "0")}
+            </div>
+          </div>
+        ))}
+      </div>
 
       {/* Filters */}
-      <section className="filters-section" aria-label="Filters and search">
-        <input
-          className="ev-search-input"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name, ID, owner, hash…"
-          aria-label="Search evidence"
-        />
-        <select
-          value={caseFilter}
-          onChange={(e) => setCaseFilter(e.target.value)}
-          aria-label="Filter by case"
-        >
+      <div style={{ display: "flex", gap: 8, marginBottom: "var(--space-5)", flexWrap: "wrap" }} role="search" aria-label="Filters and search">
+        <input className="input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name, ID, hash…" aria-label="Search evidence" style={{ flex: "1 1 200px" }} />
+        <select className="input select" value={caseFilter} onChange={(e) => setCaseFilter(e.target.value)} aria-label="Filter by case" style={{ flex: "0 0 150px" }}>
           <option value="ALL">All cases</option>
           <option value="">No case linked</option>
-          {cases.map((c) => (
-            <option key={c.id} value={c.id}>{c.title}</option>
-          ))}
+          {cases.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
         </select>
-        <select
-          value={mimeFilter}
-          onChange={(e) => setMimeFilter(e.target.value)}
-          aria-label="Filter by file type"
-        >
+        <select className="input select" value={mimeFilter} onChange={(e) => setMimeFilter(e.target.value)} aria-label="Filter by type" style={{ flex: "0 0 130px" }}>
           <option value="ALL">All types</option>
-          {categories.map((cat) => (
-            <option key={cat} value={cat}>{cat}</option>
-          ))}
+          {categories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
         </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          aria-label="Filter by status"
-        >
+        <select className="input select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status" style={{ flex: "0 0 130px" }}>
           <option value="ALL">All statuses</option>
           <option value="PENDING">Pending</option>
           <option value="VERIFIED">Verified</option>
           <option value="FLAGGED">Flagged</option>
           <option value="SEALED">Sealed</option>
         </select>
-        <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
-          aria-label="Sort by"
-        >
-          <option value="date">Newest first</option>
-          <option value="name">Name A–Z</option>
-          <option value="type">File type</option>
-          <option value="case">Case</option>
-        </select>
-      </section>
+      </div>
 
       {/* Error */}
       {fetchError && (
-        <div className="error-message" role="alert">{fetchError}</div>
+        <div role="alert" style={{ padding: "12px 16px", background: "var(--accent-danger-dim)", border: "1px solid var(--accent-danger-border)", borderRadius: "var(--radius-md)", color: "var(--accent-danger)", fontSize: "var(--text-sm)", marginBottom: "var(--space-5)" }}>
+          {fetchError}
+        </div>
       )}
 
-      {/* Bulk action banner */}
+      {/* Bulk banner */}
       {selectedIds.size > 0 && (
-        <div className="ev-info-banner" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, background: "#f0fdf4", borderColor: "#bbf7d0", color: "#166534" }}>
-          <span><strong>{selectedIds.size}</strong> evidence item{selectedIds.size !== 1 ? "s" : ""} selected</span>
+        <div style={{
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+          marginBottom: 12, padding: "10px 16px",
+          background: "var(--accent-active-dim)", border: "1px solid var(--accent-active-border)",
+          borderRadius: "var(--radius-md)", fontSize: "var(--text-sm)", color: "var(--accent-active)",
+        }}>
+          <span><strong>{selectedIds.size}</strong> item{selectedIds.size !== 1 ? "s" : ""} selected</span>
           <div style={{ display: "flex", gap: 8 }}>
-            <button
-              type="button"
-              className="button button-primary small-button"
-              onClick={handleBulkDownload}
-              disabled={downloadingZip}
-            >
-              {downloadingZip ? "Generating ZIP…" : `Download Bundle (${selectedIds.size}) ↓`}
+            <button type="button" className="btn btn-primary btn-sm" onClick={handleBulkDownload} disabled={downloadingZip}>
+              {downloadingZip ? "Generating…" : `Download (${selectedIds.size}) ↓`}
             </button>
-            <button
-              type="button"
-              className="button button-secondary small-button"
-              onClick={() => setSelectedIds(new Set())}
-            >
-              Deselect all
-            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds(new Set())}>Deselect</button>
           </div>
         </div>
       )}
 
       {/* Table */}
-      <div className="evidence-table panel">
+      <div style={{
+        background: "var(--surface-raised)", border: "1px solid var(--border-default)",
+        borderRadius: "var(--radius-md)", overflow: "hidden",
+      }}>
         {fetching ? (
-          <p className="ev-loading" role="status" aria-live="polite">Loading evidence…</p>
+          <div style={{ padding: 24 }}>
+            {[1,2,3,4,5].map(i => <div key={i} className="skeleton" style={{ height: 44, borderRadius: "var(--radius-sm)", marginBottom: 6 }} />)}
+          </div>
         ) : filtered.length === 0 ? (
-          <div className="ev-empty-state">
-            <strong>
-              {records.length === 0 ? "No evidence registered yet." : "No records match your filters."}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.3 }}>◉</div>
+            <strong style={{ color: "var(--text-primary)" }}>
+              {records.length === 0 ? "No evidence registered yet" : "No records match your filters"}
             </strong>
-            {records.length === 0 && (
-              <p><a href="/evidence/new">Upload your first evidence file →</a></p>
+            <p style={{ color: "var(--text-secondary)", fontSize: "var(--text-sm)", margin: "8px 0 16px" }}>
+              {records.length === 0 ? "Upload evidence to begin building your registry." : "Try adjusting your search or filter criteria."}
+            </p>
+            {records.length === 0 && user?.role !== "Auditor" && (
+              <a href="/evidence/new" className="btn btn-primary btn-md">+ Upload evidence</a>
             )}
           </div>
         ) : (
-          <div className="table-container">
-            <table aria-label="Evidence records">
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", minWidth: 800, borderCollapse: "collapse" }} aria-label="Evidence records">
               <thead>
-                <tr>
-                  <th scope="col" style={{ width: 36, paddingLeft: 12 }}>
-                    <input
-                      type="checkbox"
-                      aria-label="Select all"
-                      checked={filtered.length > 0 && selectedIds.size === filtered.length}
-                      onChange={toggleSelectAll}
-                    />
+                <tr style={{ background: "var(--surface-sunken)" }}>
+                  <th style={{ ...th, width: 36, paddingLeft: 12 }}>
+                    <input type="checkbox" aria-label="Select all" checked={filtered.length > 0 && selectedIds.size === filtered.length} onChange={toggleSelectAll} style={{ accentColor: "var(--brand-600)" }} />
                   </th>
-                  <th scope="col">Evidence</th>
-                  <th scope="col">Case</th>
-                  <th scope="col">Uploader</th>
-                  <th scope="col">Status</th>
-                  <th scope="col">SHA-256</th>
-                  <th scope="col">Size</th>
-                  <th scope="col">Uploaded</th>
-                  <th scope="col"><span className="sr-only">Actions</span></th>
+                  <th style={th}>Evidence</th>
+                  <th style={th}>Case</th>
+                  <th style={th}>Uploader</th>
+                  <th style={th}>Status</th>
+                  <th style={th}>SHA-256</th>
+                  <th style={th}>Size</th>
+                  <th style={th}>Uploaded</th>
+                  <th style={{ ...th, width: 70 }}><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -388,55 +316,58 @@ export default function EvidenceListPage() {
                   <tr
                     key={r.id}
                     onClick={() => (window.location.href = `/evidence/${r.id}`)}
-                    className={`ev-table-row ${selectedIds.has(r.id) ? "ev-table-row--selected" : ""}`}
                     tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") window.location.href = `/evidence/${r.id}`;
+                    onKeyDown={(e) => { if (e.key === "Enter") window.location.href = `/evidence/${r.id}`; }}
+                    aria-label={`View ${r.name}`}
+                    style={{
+                      cursor: "pointer",
+                      transition: "background 0.1s ease",
+                      background: selectedIds.has(r.id) ? "rgba(74,190,148,0.06)" : "transparent",
                     }}
-                    aria-label={`View evidence ${r.name}`}
+                    onMouseEnter={(e) => { if (!selectedIds.has(r.id)) (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.02)"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = selectedIds.has(r.id) ? "rgba(74,190,148,0.06)" : "transparent"; }}
                   >
-                    <td style={{ width: 36, paddingLeft: 12 }} onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label={`Select ${r.name}`}
-                        checked={selectedIds.has(r.id)}
-                        onChange={() => toggleSelect(r.id)}
-                      />
+                    <td style={{ ...td, width: 36, paddingLeft: 12 }} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" aria-label={`Select ${r.name}`} checked={selectedIds.has(r.id)} onChange={() => toggleSelect(r.id)} style={{ accentColor: "var(--brand-600)" }} />
                     </td>
-                    <td>
-                      <div className="file-cell">
-                        <span className="ev-mime-badge" aria-hidden="true">
-                          {mimeIcon(r.mimeType)}
-                        </span>
-                        <div>
-                          <strong>{r.name}</strong>
-                          <small>{mimeCategory(r.mimeType)} · {r.ownerOrg}</small>
+                    <td style={td}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span style={{
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                          width: 32, height: 32, borderRadius: "var(--radius-sm)",
+                          background: "var(--surface-overlay)", border: "1px solid var(--border-subtle)",
+                          fontFamily: "var(--font-mono)", fontSize: 9, fontWeight: 700,
+                          color: "var(--text-secondary)", letterSpacing: "0.05em", flexShrink: 0,
+                        }}>{mimeIcon(r.mimeType)}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "var(--text-sm)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>{r.name}</div>
+                          <div style={{ fontSize: 11, color: "var(--text-disabled)" }}>{mimeCategory(r.mimeType)} · {r.ownerOrg}</div>
                         </div>
                       </div>
                     </td>
-
-                    <td>{r.case?.title ?? <span className="ev-muted">—</span>}</td>
-                    <td>{r.collectedBy?.name ?? <span className="ev-muted">—</span>}</td>
-                    <td>
-                      <span className={`status ${STATUS_CLASS[r.status] ?? "pending"}`} aria-label={`Status: ${r.status}`}>
-                        <span aria-hidden="true" />
-                        {r.status.charAt(0) + r.status.slice(1).toLowerCase()}
+                    <td style={{ ...td, fontSize: "var(--text-sm)" }}>{r.case?.title ?? <span style={{ color: "var(--text-disabled)" }}>—</span>}</td>
+                    <td style={{ ...td, fontSize: "var(--text-sm)" }}>{r.collectedBy?.name ?? <span style={{ color: "var(--text-disabled)" }}>—</span>}</td>
+                    <td style={td}>
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                        padding: "2px 8px", borderRadius: "var(--radius-sm)",
+                        fontSize: 10, fontFamily: "var(--font-mono)", fontWeight: 500,
+                        letterSpacing: "0.06em", textTransform: "uppercase",
+                        color: STATUS_COLORS[r.status]?.color ?? "var(--text-secondary)",
+                        background: STATUS_COLORS[r.status]?.bg ?? "rgba(255,255,255,0.04)",
+                        border: `1px solid ${STATUS_COLORS[r.status]?.border ?? "var(--border-default)"}`,
+                      }}>
+                        <span style={{ width: 5, height: 5, borderRadius: "50%", background: "currentColor", opacity: 0.8 }} />
+                        {r.status}
                       </span>
                     </td>
-                    <td>
-                      <code className="ev-hash-chip" title={r.sha256}>{shortHash(r.sha256)}</code>
+                    <td style={td}>
+                      <code style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--neutral-600)", letterSpacing: "0.02em" }} title={r.sha256}>{shortHash(r.sha256)}</code>
                     </td>
-                    <td>{fmtBytes(r.sizeBytes)}</td>
-                    <td>{fmtDate(r.createdAt)}</td>
-                    <td>
-                      <a
-                        className="button button-secondary small-button"
-                        href={`/evidence/${r.id}`}
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label={`View details for ${r.name}`}
-                      >
-                        View
-                      </a>
+                    <td style={{ ...td, whiteSpace: "nowrap", fontSize: 12, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>{fmtBytes(r.sizeBytes)}</td>
+                    <td style={{ ...td, whiteSpace: "nowrap", fontSize: 12, color: "var(--text-secondary)" }}>{fmtDate(r.createdAt)}</td>
+                    <td style={{ ...td, width: 70 }}>
+                      <a className="btn btn-ghost btn-sm" href={`/evidence/${r.id}`} onClick={(e) => e.stopPropagation()} style={{ fontSize: 11 }}>View</a>
                     </td>
                   </tr>
                 ))}
@@ -446,10 +377,15 @@ export default function EvidenceListPage() {
         )}
       </div>
 
-      <footer className="ev-list-footer">
+      {/* Footer */}
+      <div style={{
+        display: "flex", justifyContent: "space-between", marginTop: "var(--space-5)",
+        padding: "var(--space-3) 0", borderTop: "1px solid var(--border-subtle)",
+        fontSize: 11, color: "var(--text-disabled)", fontFamily: "var(--font-mono)",
+      }}>
         <span>{filtered.length} of {records.length} records shown</span>
         <span>EviChain · Evidence registry</span>
-      </footer>
-    </main>
+      </div>
+    </WorkspaceShell>
   );
 }

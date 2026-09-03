@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth-context";
 import { getAuditLogs, type AuditLog } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -67,9 +68,7 @@ export default function AuditPage() {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-  }, [authLoading, user]);
+  
 
   useEffect(() => {
     if (!accessToken) return;
@@ -116,41 +115,23 @@ export default function AuditPage() {
   }), [logs]);
 
   if (authLoading) {
-    return <main className="audit-shell"><p className="audit-loading">Loading…</p></main>;
+    return <WorkspaceShell breadcrumbs={[{ label: 'Audit Logs' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}><p className="audit-loading">Loading…</p></div>
+</WorkspaceShell>;
   }
 
   return (
-    <main className="audit-shell">
+    <WorkspaceShell breadcrumbs={[{ label: 'Audit Logs' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
       {/* Top bar */}
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/" aria-label="EviChain home">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span>
-            <strong>EviChain</strong>
-            <small>Audit dashboard</small>
-          </span>
-        </a>
-        <nav className="ev-nav" aria-label="Primary navigation">
-          <a href="/audit/export" className="button button-primary small-button">
-            Export logs ↓
-          </a>
-          <a href="/evidence">Evidence</a>
-          <a href="/cases">Cases</a>
-          {user && (
-            <span className="ev-user-badge">
-              <span className="operator" aria-hidden="true">{user.initials}</span>
-              <span>{user.name}</span>
-            </span>
-          )}
-        </nav>
-      </header>
+      
 
       {/* Page header */}
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: "24px" }}>
         <div>
-          <p className="eyebrow">IMMUTABLE AUDIT LEDGER</p>
-          <h1>Audit logs</h1>
-          <p className="ev-page-sub">
+          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>IMMUTABLE AUDIT LEDGER</p>
+          <h1 style={{ color: "var(--text-primary)", fontSize: "24px", margin: "8px 0" }}>Audit logs</h1>
+          <p className="ev-page-sub" style={{ color: "var(--text-secondary)" }}>
             Every action logged in real time — tamper-evident chain of custody.
           </p>
         </div>
@@ -158,7 +139,7 @@ export default function AuditPage() {
 
       {/* Stats */}
       <section className="stats-grid" aria-label="Audit statistics">
-        <div className="stat-card">
+        <div className="stat-card" style={{ background: "var(--surface-raised)", border: "1px solid var(--border-default)", borderRadius: "8px", padding: "16px", color: "var(--text-primary)" }}>
           <span>Total events</span>
           <strong>{String(stats.total).padStart(3, "0")}</strong>
           <small>All time</small>
@@ -244,7 +225,7 @@ export default function AuditPage() {
       </div>
 
       {fetchError && (
-        <div className="error-message" role="alert">{fetchError}</div>
+        <div className="error-message" style={{ color: "var(--accent-danger)", border: "1px solid var(--accent-danger)", background: "rgba(244, 63, 94, 0.1)", padding: "12px", borderRadius: "6px" }} role="alert">{fetchError}</div>
       )}
 
       {/* Timeline */}
@@ -267,7 +248,7 @@ export default function AuditPage() {
         ) : (
           <ol className="audit-timeline" aria-label="Audit event timeline">
             {filtered.map((log) => (
-              <li key={log.id} className="timeline-item">
+              <li key={log.id} className="timeline-item" style={{ borderBottom: "1px solid var(--border-subtle)", padding: "12px 0" }}>
                 <span
                   className={`action-badge ${actionClass(log.action)}`}
                   aria-hidden="true"
@@ -321,6 +302,7 @@ export default function AuditPage() {
         <span>{filtered.length} of {logs.length} events shown</span>
         <a href="/audit/export" className="ev-footer-link">Export full ledger →</a>
       </footer>
-    </main>
+    </div>
+</WorkspaceShell>
   );
 }

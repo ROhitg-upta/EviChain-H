@@ -1,6 +1,7 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_URL = RAW_API_URL.replace(/\/+$/, "");
 
-// â”€â”€â”€ Shared types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Shared types ─────────────────────────────────────────────────────────────
 
 export type AuthResponse = {
   user: { id: string; email: string; name: string; role: string };
@@ -27,9 +28,14 @@ export type CustodyEvent = {
   action: string;
   actorUserId: string;
   actor?: { id: string; name: string; role: string } | null;
+  fromUserId?: string | null;
+  fromUser?: { id: string; name: string; role: string } | null;
+  toUserId?: string | null;
+  toUser?: { id: string; name: string; role: string } | null;
   fromLocation?: string | null;
   toLocation?: string | null;
   note: string;
+  ipAddress?: string | null;
   timestamp: string;
 };
 
@@ -38,95 +44,116 @@ export type EvidenceRecord = {
   name: string;
   type: string;
   ownerOrg: string;
+  description?: string | null;
   status: string;
   sha256: string;
   sizeBytes: number;
   mimeType: string;
-  storageKey: string;
+  storageKey?: string;
   caseId?: string | null;
   case?: { id: string; title: string; status: string } | null;
-  collectedById: string;
+  collectedById?: string;
   collectedBy?: { id: string; name: string; role: string } | null;
+  currentCustodianId?: string | null;
+  currentCustodian?: { id: string; name: string; role: string } | null;
   custodyEvents?: CustodyEvent[];
   createdAt: string;
   updatedAt: string;
 };
 
+
 export type CaseDetail = CaseRecord & {
   evidence: EvidenceRecord[];
+  custodyEvents: CustodyEvent[];
 };
 
 export type PublicVerifyResult = {
-  sha256: string;
   matched: boolean;
-  evidence: {
+  sha256: string;
+  evidence?: {
     id: string;
     name: string;
     type: string;
     ownerOrg: string;
     status: string;
-    sha256: string;
     registeredAt: string;
-  } | null;
+  };
+  note?: string;
 };
 
 export type UploadEvidenceResult = {
   id: string;
-  name: string;
-  type: string;
-  ownerOrg: string;
+  name?: string;
+  filename?: string;
+  type?: string;
+  ownerOrg?: string;
   sha256: string;
-  sizeBytes: number;
+  sizeBytes?: number;
+  size?: number;
   mimeType: string;
   status: string;
   createdAt: string;
+  caseId?: string | null;
+  uploader?: { id: string; name: string; role: string };
 };
 
 // ─── Safe JSON parser ─────────────────────────────────────────────────────────
 
 /**
  * Safely parse a Response as JSON.
- * If the server returns HTML (e.g. a Next.js 404 page or an unhandled Express
- * error) we read the text first and surface a human-readable message instead
- * of throwing "Unexpected token '<'".
+ * If the server returns HTML (e.g. a Next.js 404 page or an unhandled Express error)
+ * we surface a human-readable message instead of throwing "Unexpected token '<'".
  */
 async function safeJson<T>(res: Response): Promise<T> {
   const text = await res.text();
   const ct = res.headers.get("content-type") ?? "";
 
   if (!ct.includes("application/json")) {
-    // Trim long HTML blobs down to something useful
-    const preview = text.slice(0, 120).replace(/\s+/g, " ").trim();
+    if (res.status === 404) {
+      throw new Error("The requested resource or endpoint was not found.");
+    }
     throw new Error(
-      `Server returned ${res.status} (non-JSON)${preview ? `: ${preview}` : ""}. ` +
-        "Is the backend running on port 4000?",
+      `Unable to connect to the EviChain API (HTTP ${res.status}). Confirm that the backend is running on port 4000.`,
     );
   }
 
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error(`Server returned ${res.status} but the JSON was malformed.`);
+    throw new Error(`Server returned HTTP ${res.status} but the JSON response was malformed.`);
   }
 }
 
 /** Extract a human-readable message from any error shape the backend sends. */
-function extractError(data: { error?: unknown }, fallback: string): string {
-  const e = data.error;
-  if (!e) return fallback;
-  if (typeof e === "string") return e;
+function extractError(data: unknown, fallback: string): string {
+  if (!data || typeof data !== "object") return fallback;
+  const d = data as Record<string, unknown>;
+
+  // Format: { error: { message: "...", code: "..." } }
+  if (d.error && typeof d.error === "object") {
+    const nested = d.error as Record<string, unknown>;
+    if (typeof nested.message === "string") return nested.message;
+  }
+
+  // Format: { error: "..." }
+  if (typeof d.error === "string") return d.error;
+
+  // Format: { message: "..." }
+  if (typeof d.message === "string") return d.message;
+
   // Zod flatten() shape: { formErrors: string[], fieldErrors: Record<string, string[]> }
-  if (typeof e === "object") {
-    const ze = e as { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
+  if (typeof d.fieldErrors === "object" || typeof d.formErrors === "object") {
+    const ze = d as { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
     const fields = ze.fieldErrors
       ? Object.entries(ze.fieldErrors)
-          .map(([k, v]) => `${k}: ${v.join(", ")}`)
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)
           .join(" · ")
       : "";
     const forms = ze.formErrors?.join(" · ") ?? "";
     const msg = [forms, fields].filter(Boolean).join(" · ");
     return msg || fallback;
   }
+
   return fallback;
 }
 
@@ -148,7 +175,7 @@ export async function refreshToken(): Promise<AuthResponse | null> {
       return null;
     }
 
-    const data = (await res.json()) as AuthResponse;
+    const data = await safeJson<AuthResponse>(res);
     if (typeof window !== "undefined" && data.accessToken) {
       localStorage.setItem("evichain-token-v1", data.accessToken);
       if (data.refreshToken) {
@@ -206,7 +233,7 @@ async function apiFetch(
     res = await fetch(url, mergedInit);
   } catch {
     throw new Error(
-      "Cannot reach the server — is the backend running on port 4000?",
+      "Unable to connect to the EviChain API. Confirm that the backend is running on port 4000.",
     );
   }
 
@@ -287,8 +314,17 @@ export async function logout(token?: string | null): Promise<void> {
 
 // â”€â”€â”€ Cases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-export async function getCases(token: string): Promise<CaseRecord[]> {
-  const res = await apiFetch(`${API_URL}/cases`, {
+export async function getCases(
+  token: string,
+  params?: { status?: string; priority?: string; q?: string },
+): Promise<CaseRecord[]> {
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  if (params?.priority) query.set("priority", params.priority);
+  if (params?.q) query.set("q", params.q);
+
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  const res = await apiFetch(`${API_URL}/cases${qs}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -299,6 +335,21 @@ export async function getCases(token: string): Promise<CaseRecord[]> {
 
   return safeJson<CaseRecord[]>(res);
 }
+
+export async function deleteCase(token: string, id: string): Promise<{ message: string }> {
+  const res = await apiFetch(`${API_URL}/cases/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const err = await safeJson<{ error: string }>(res);
+    throw new Error(err.error || "Failed to delete case");
+  }
+
+  return safeJson<{ message: string }>(res);
+}
+
 
 export async function getCaseById(token: string, id: string): Promise<CaseDetail> {
   const res = await apiFetch(`${API_URL}/cases/${id}`, {
@@ -467,27 +518,136 @@ export async function createEvidence(token: string, formData: FormData) {
   return uploadEvidence(token, formData);
 }
 
-/** Download evidence â€” logs DOWNLOADED custody event server-side. */
-export async function downloadEvidence(token: string, id: string) {
+export interface SafeEvidenceResponse {
+  id: string;
+  caseId: string | null;
+  filename: string;
+  mimeType: string;
+  size: number;
+  sha256: string;
+  status?: string;
+  createdAt: string;
+
+  uploader: {
+    id: string;
+    name: string;
+    role: string;
+  };
+}
+
+/**
+ * Upload evidence directly linked to a specific case via POST /cases/:caseId/evidence
+ */
+export async function uploadCaseEvidence(
+  token: string,
+  caseId: string,
+  file: File,
+  metadata?: {
+    description?: string;
+    evidenceType?: string;
+    ownerOrg?: string;
+    name?: string;
+  },
+  onProgress?: (pct: number) => void,
+): Promise<SafeEvidenceResponse> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (metadata?.name) formData.append("name", metadata.name);
+  if (metadata?.description) formData.append("description", metadata.description);
+  if (metadata?.evidenceType) formData.append("evidenceType", metadata.evidenceType);
+  if (metadata?.ownerOrg) formData.append("ownerOrg", metadata.ownerOrg);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_URL}/cases/${caseId}/evidence`);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+    if (onProgress && xhr.upload) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(xhr.responseText) as Record<string, unknown>;
+      } catch {
+        reject(new Error("Server returned non-JSON response"));
+        return;
+      }
+
+      if (xhr.status >= 400) {
+        reject(new Error((data.error as string) || (data.message as string) || `Upload failed with status ${xhr.status}`));
+        return;
+      }
+
+      resolve(data as unknown as SafeEvidenceResponse);
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("Network connection error during upload."));
+    };
+
+    xhr.send(formData);
+  });
+}
+
+
+/** Download evidence bytes from storage — logs DOWNLOADED custody event server-side. */
+export async function downloadEvidence(
+  token: string,
+  id: string,
+): Promise<{ blob: Blob; filename: string }> {
   const res = await apiFetch(`${API_URL}/evidence/${id}/download`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
-    const data = await safeJson<{ error: string }>(res);
-    throw new Error(data.error || "Download failed");
+    let errMsg = "Download failed";
+    try {
+      const data = await safeJson<Record<string, unknown>>(res);
+      errMsg = extractError(data, errMsg);
+    } catch {
+      // fallback
+    }
+    throw new Error(errMsg);
   }
 
-  return safeJson<{
-    id: string;
-    name: string;
-    storageKey: string;
-    sha256: string;
-    sizeBytes: number;
-    mimeType: string;
-    note: string;
-  }>(res);
+  let filename = "evidence.bin";
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/);
+  if (match && match[1]) {
+    try {
+      filename = decodeURIComponent(match[1]);
+    } catch {
+      filename = match[1];
+    }
+  }
+
+  const blob = await res.blob();
+  return { blob, filename };
 }
+
+/** Retrieve complete chronological chain of custody events for an evidence record. */
+export async function getEvidenceCustodyTimeline(
+  token: string,
+  evidenceId: string,
+): Promise<CustodyEvent[]> {
+  const res = await apiFetch(`${API_URL}/evidence/${evidenceId}/custody`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const data = await safeJson<{ error: string }>(res);
+    throw new Error(data.error || "Failed to fetch custody timeline");
+  }
+
+  return safeJson<CustodyEvent[]>(res);
+}
+
 
 // â”€â”€â”€ Public verification â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

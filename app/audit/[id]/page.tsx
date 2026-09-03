@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { useAuth } from "../../auth-context";
 import { getAuditLogById, type AuditLog } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 function fmtDate(iso: string) {
   return new Intl.DateTimeFormat("en-IN", {
@@ -20,51 +22,56 @@ const ACTION_LABELS: Record<string, { label: string; desc: string }> = {
   "case.link_evidence": { label: "Evidence linked to case", desc: "An evidence record was associated with this case." },
 };
 
-export default function AuditDetailPage({ params }: { params: { id: string } }) {
+export default function AuditDetailPage() {
+  const routeParams = useParams();
+  const id = typeof routeParams?.id === "string" ? routeParams.id : Array.isArray(routeParams?.id) ? routeParams.id[0] : "";
   const { user, loading: authLoading, accessToken } = useAuth();
 
   const [log, setLog] = useState<AuditLog | null>(null);
   const [fetching, setFetching] = useState(true);
   const [fetchError, setFetchError] = useState("");
 
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-  }, [authLoading, user]);
-
-  useEffect(() => {
-    if (!accessToken) return;
+  const loadAuditLog = useCallback(() => {
+    if (!accessToken || !id) return;
     setFetching(true);
-    getAuditLogById(accessToken, params.id)
+    setFetchError("");
+    getAuditLogById(accessToken, id)
       .then(setLog)
       .catch((err: unknown) =>
         setFetchError(err instanceof Error ? err.message : "Failed to load audit log"),
       )
       .finally(() => setFetching(false));
-  }, [accessToken, params.id]);
+  }, [accessToken, id]);
+
+  useEffect(() => {
+    loadAuditLog();
+  }, [loadAuditLog]);
 
   if (authLoading || fetching) {
     return (
-      <main className="audit-shell">
-        <p className="audit-loading" role="status" aria-live="polite">Loading…</p>
-      </main>
+      <WorkspaceShell breadcrumbs={[{ label: "Audit", href: "/audit" }, { label: "Event Detail" }]}>
+        <div style={{ display: "grid", gap: 12 }}>
+          <div className="skeleton" style={{ height: 100, borderRadius: "var(--radius-md)" }} />
+        </div>
+      </WorkspaceShell>
     );
   }
 
   if (fetchError || !log) {
     return (
-      <main className="audit-shell">
-        <header className="ev-topbar">
-          <a className="ev-brand" href="/"><span className="brand-mark">E</span>
-            <span><strong>EviChain</strong><small>Audit dashboard</small></span>
-          </a>
-        </header>
-        <div className="error-message" style={{ marginTop: 40 }} role="alert">
+      <WorkspaceShell breadcrumbs={[{ label: "Audit", href: "/audit" }, { label: "Event Detail" }]}>
+        <div className="error-message" style={{ marginTop: 24 }} role="alert">
           {fetchError || "Audit log not found."}
         </div>
-        <a className="button button-secondary" style={{ marginTop: 16 }} href="/audit">
-          ← Back to audit logs
-        </a>
-      </main>
+        <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+          <button className="btn btn-primary" onClick={loadAuditLog}>
+            Retry
+          </button>
+          <a className="btn btn-secondary" href="/audit">
+            ← Back to audit logs
+          </a>
+        </div>
+      </WorkspaceShell>
     );
   }
 
@@ -72,18 +79,7 @@ export default function AuditDetailPage({ params }: { params: { id: string } }) 
   const detail = log.detailJson as Record<string, unknown> | null;
 
   return (
-    <main className="audit-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Audit dashboard</small></span>
-        </a>
-        <nav className="ev-nav" aria-label="Primary navigation">
-          <a href="/audit">← Audit logs</a>
-          <a href="/audit/export">Export</a>
-          {user && <span className="operator" aria-label={user.name}>{user.initials}</span>}
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: "Audit", href: "/audit" }, { label: log.action }]}>
 
       <div className="page-header">
         <div>
@@ -266,7 +262,7 @@ export default function AuditDetailPage({ params }: { params: { id: string } }) 
             </p>
             <p style={{ marginTop: 10 }}>
               For court submissions, export the full audit ledger via{" "}
-              <a href="/audit/export" style={{ color: "var(--green)", fontWeight: 700 }}>
+              <a href="/audit/export" style={{ color: "var(--brand-600)", fontWeight: 700 }}>
                 Audit Export
               </a>{" "}
               and include the export timestamp.
@@ -274,6 +270,6 @@ export default function AuditDetailPage({ params }: { params: { id: string } }) 
           </div>
         </div>
       </div>
-    </main>
+    </WorkspaceShell>
   );
 }

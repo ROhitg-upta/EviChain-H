@@ -1,11 +1,21 @@
 import { Router } from "express";
 import { z } from "zod";
 import PDFDocument from "pdfkit";
-import { prisma } from "../db";
+import { prisma, normalizePrismaError } from "../db";
 import { requireAuth, AuthedRequest, requireRole } from "../middleware";
 import { notificationService } from "../services/notification.service";
 
+import multer from "multer";
+import { env } from "../config/env";
+import { processEvidenceUpload, UploadError } from "../services/evidence-upload.service";
+
 const router = Router();
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: env.MAX_FILE_SIZE_BYTES },
+});
+
 
 // ── Schemas ───────────────────────────────────────────────────────
 const createCaseSchema = z.object({
@@ -24,14 +34,34 @@ const updateCaseSchema = z.object({
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// GET /cases  — list with evidence count and lead user
+// GET /cases  — list with evidence count, lead user, and filters
 // ═══════════════════════════════════════════════════════════════════
 router.get("/", requireAuth, async (req: AuthedRequest, res) => {
   try {
-    const status = req.query.status as string | undefined;
+    const status = req.query["status"] as string | undefined;
+    const priority = req.query["priority"] as string | undefined;
+    const q = req.query["q"] as string | undefined;
+
+    const where: import("@prisma/client").Prisma.CaseWhereInput = {};
+
+    if (status && status !== "ALL") {
+      where.status = { equals: status, mode: "insensitive" };
+    }
+
+    if (priority && priority !== "ALL") {
+      where.priority = { equals: priority, mode: "insensitive" };
+    }
+
+    if (q && q.trim()) {
+      const term = q.trim();
+      where.OR = [
+        { title: { contains: term, mode: "insensitive" } },
+        { description: { contains: term, mode: "insensitive" } },
+      ];
+    }
 
     const cases = await prisma.case.findMany({
-      where: status ? { status } : undefined,
+      where,
       include: {
         lead: { select: { id: true, name: true, role: true } },
         _count: { select: { evidence: true } },
@@ -47,10 +77,11 @@ router.get("/", requireAuth, async (req: AuthedRequest, res) => {
 
     return res.json(payload);
   } catch (error) {
-    console.error("Case list error:", error);
-    return res.status(500).json({ error: "Failed to list cases" });
+    const norm = normalizePrismaError(error);
+    return res.status(norm.statusCode).json({ error: norm.message });
   }
 });
+
 
 // ═══════════════════════════════════════════════════════════════════
 // GET /cases/:id  — full detail with evidence array
@@ -74,7 +105,7 @@ router.get("/:id", requireAuth, async (req: AuthedRequest, res) => {
     });
 
     if (!caseRecord) {
-      return res.status(404).json({ error: "Case not found" });
+      return res.status(404).json({ error: "Case not found", code: "CASE_NOT_FOUND" });
     }
 
     return res.json({
@@ -201,6 +232,118 @@ router.put(
   requireRole("ADMINISTRATOR", "INVESTIGATOR"),
   handleUpdate,
 );
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /cases/:id  — safe case removal (Admin only)
+// ═══════════════════════════════════════════════════════════════════
+router.delete(
+  "/:id",
+  requireAuth,
+  requireRole("ADMINISTRATOR"),
+  async (req: AuthedRequest, res) => {
+    try {
+      const id = req.params["id"] as string;
+
+      const existing = await prisma.case.findUnique({
+        where: { id },
+        include: { _count: { select: { evidence: true } } },
+      });
+
+      if (!existing) {
+        return res.status(404).json({ error: "Case not found" });
+      }
+
+      await prisma.$transaction([
+        prisma.evidence.updateMany({
+          where: { caseId: id },
+          data: { caseId: null },
+        }),
+        prisma.commentMention.deleteMany({
+          where: { comment: { caseId: id } },
+        }),
+        prisma.caseComment.deleteMany({
+          where: { caseId: id },
+        }),
+        prisma.case.delete({
+          where: { id },
+        }),
+        prisma.auditLog.create({
+          data: {
+            actorUserId: req.userId!,
+            action: "case.delete",
+            resourceType: "case",
+            resourceId: id,
+            detailJson: { title: existing.title, unlinkedEvidenceCount: existing._count.evidence },
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+          },
+        }),
+      ]);
+
+      return res.json({
+        message: "Case deleted successfully",
+        id,
+      });
+    } catch (error) {
+      const norm = normalizePrismaError(error);
+      return res.status(norm.statusCode).json({ error: norm.message });
+    }
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /cases/:caseId/evidence — Upload & register evidence for a case
+// ═══════════════════════════════════════════════════════════════════
+router.post(
+  "/:caseId/evidence",
+  requireAuth,
+  requireRole("ADMINISTRATOR", "INVESTIGATOR"),
+  (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(413).json({ code: "FILE_TOO_LARGE", error: "File size exceeds configured limit." });
+        }
+        return res.status(400).json({ code: "UPLOAD_ERROR", error: `Upload error: ${err.message}` });
+      }
+      if (err instanceof Error) {
+        return res.status(400).json({ code: "UPLOAD_ERROR", error: err.message });
+      }
+      next();
+    });
+  },
+  async (req: AuthedRequest, res) => {
+    try {
+      const caseId = req.params["caseId"] as string;
+
+      if (!req.file) {
+        return res.status(400).json({ code: "FILE_REQUIRED", error: "No file payload provided." });
+      }
+
+      const evidence = await processEvidenceUpload({
+        file: req.file,
+        caseId,
+        uploaderId: req.userId!,
+        name: typeof req.body.name === "string" ? req.body.name : undefined,
+        type: typeof req.body.evidenceType === "string" ? req.body.evidenceType : typeof req.body.type === "string" ? req.body.type : undefined,
+        ownerOrg: typeof req.body.ownerOrg === "string" ? req.body.ownerOrg : undefined,
+        description: typeof req.body.description === "string" ? req.body.description : undefined,
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+      });
+
+      return res.status(201).json(evidence);
+    } catch (err: unknown) {
+      if (err instanceof UploadError) {
+        return res.status(err.statusCode).json({ code: err.code, error: err.message });
+      }
+      const norm = normalizePrismaError(err);
+      return res.status(norm.statusCode).json({ code: norm.code || "INTERNAL_ERROR", error: norm.message });
+    }
+  },
+);
+
+
 
 // ═══════════════════════════════════════════════════════════════════
 // POST /cases/:caseId/evidence/:evidenceId  — link evidence to case

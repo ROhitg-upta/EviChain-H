@@ -41,18 +41,177 @@ export default function LoginPage() {
     }
   }
 
+  // Styles using CSS custom properties
+  const styles: { [key: string]: React.CSSProperties } = {
+    main: {
+      backgroundColor: "var(--surface-base, #0f1114)",
+      minHeight: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      position: "relative",
+      overflow: "hidden",
+      fontFamily: "var(--font-sans, Inter, sans-serif)",
+      color: "var(--text-primary, #e8e6e3)",
+      padding: "1rem",
+    },
+    meshContainer: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      overflow: "hidden",
+      zIndex: 0,
+      pointerEvents: "none",
+    },
+    mesh1: {
+      position: "absolute",
+      top: "-10%",
+      left: "-10%",
+      width: "40vw",
+      height: "40vw",
+      background: "radial-gradient(circle, rgba(34, 211, 238, 0.05) 0%, transparent 70%)",
+      borderRadius: "50%",
+    },
+    mesh2: {
+      position: "absolute",
+      bottom: "-10%",
+      right: "-10%",
+      width: "50vw",
+      height: "50vw",
+      background: "radial-gradient(circle, rgba(181, 245, 66, 0.03) 0%, transparent 70%)",
+      borderRadius: "50%",
+    },
+    card: {
+      backgroundColor: "var(--surface-raised, #181b20)",
+      border: "1px solid var(--border-subtle, rgba(255,255,255,0.06))",
+      borderRadius: "var(--radius-lg, 8px)",
+      padding: "2.5rem",
+      width: "100%",
+      maxWidth: "420px",
+      position: "relative",
+      zIndex: 1,
+      display: "flex",
+      flexDirection: "column",
+      gap: "1.5rem",
+      boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+    },
+    header: {
+      display: "flex",
+      alignItems: "center",
+      gap: "1rem",
+      marginBottom: "0.25rem",
+      justifyContent: "center",
+    },
+    brandMark: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      width: "40px",
+      height: "40px",
+      backgroundColor: "var(--accent-verified, #b5f542)",
+      color: "#000",
+      fontWeight: "bold",
+      fontSize: "1.25rem",
+      borderRadius: "var(--radius-sm, 4px)",
+    },
+    brandText: {
+      fontSize: "1.5rem",
+      fontWeight: "600",
+      letterSpacing: "-0.025em",
+      margin: 0,
+      color: "var(--text-primary, #e8e6e3)",
+    },
+    subTitle: {
+      color: "var(--text-secondary, #7a7d82)",
+      margin: 0,
+      fontSize: "0.875rem",
+      textAlign: "center",
+    },
+    toggleContainer: {
+      display: "flex",
+      gap: "1rem",
+      justifyContent: "center",
+      marginBottom: "0.5rem",
+    },
+    toggleBtn: {
+      background: "none",
+      border: "none",
+      color: "var(--text-secondary, #7a7d82)",
+      cursor: "pointer",
+      fontSize: "0.875rem",
+      fontWeight: "500",
+      padding: "0.25rem 0.5rem",
+      transition: "color 0.2s, border-color 0.2s",
+      borderBottom: "2px solid transparent",
+    },
+    toggleBtnActive: {
+      color: "var(--text-primary, #e8e6e3)",
+      borderBottom: "2px solid var(--accent-active, #22d3ee)",
+    },
+    formGroup: {
+      display: "flex",
+      flexDirection: "column",
+      gap: "0.5rem",
+      marginBottom: "1.25rem",
+    },
+    label: {
+      fontSize: "0.875rem",
+      fontWeight: "500",
+      color: "var(--text-primary, #e8e6e3)",
+    },
+    customInput: {
+      backgroundColor: "var(--surface-sunken, #0a0c0e)",
+      border: "1px solid var(--border-default, rgba(255,255,255,0.1))",
+      color: "var(--text-primary, #e8e6e3)",
+      outline: "none",
+    },
+    alertError: {
+      backgroundColor: "rgba(244, 63, 94, 0.1)",
+      borderLeft: "4px solid var(--accent-alert, #f43f5e)",
+      color: "var(--accent-alert, #f43f5e)",
+      padding: "0.75rem 1rem",
+      borderRadius: "var(--radius-sm, 4px)",
+      fontSize: "0.875rem",
+      display: "flex",
+      gap: "0.5rem",
+      alignItems: "center",
+      marginBottom: "1rem",
+    },
+    trustIndicators: {
+      fontFamily: "var(--font-mono, DM Mono, monospace)",
+      fontSize: "0.75rem",
+      color: "var(--text-secondary, #7a7d82)",
+      textAlign: "center",
+      marginTop: "1.5rem",
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      gap: "0.5rem",
+    },
+    primaryBtn: {
+      backgroundColor: "var(--accent-verified, #b5f542)",
+      color: "#000",
+      border: "none",
+    }
+  };
 
   if (user) {
     return (
-      <main className="auth-shell">
-        <section className="auth-card">
-          <span className="auth-brand-mark" aria-hidden="true">E</span>
-          <p className="eyebrow" style={{ textAlign: "center", marginBottom: "var(--space-2)" }}>
+      <main style={styles.main}>
+        <section style={styles.card}>
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <span style={styles.brandMark} aria-hidden="true">E</span>
+          </div>
+          <p className="eyebrow" style={{ textAlign: "center", margin: "0.5rem 0 0", color: "var(--accent-active, #22d3ee)" }}>
             Active session
           </p>
-          <h1 className="auth-title">Already signed in</h1>
-          <p className="auth-sub">{user.name} · {user.role}</p>
-          <a className="btn btn-primary btn-lg btn-full" href="/" style={{ marginTop: "var(--space-4)" }}>
+          <h1 style={{ ...styles.brandText, textAlign: "center" }}>Already signed in</h1>
+          <p style={{ color: "var(--text-secondary, #7a7d82)", textAlign: "center", margin: 0 }}>
+            {user.name} · {user.role}
+          </p>
+          <a className="btn btn-primary" href="/dashboard" style={{ ...styles.primaryBtn, width: "100%", justifyContent: "center", display: "flex", marginTop: "1rem", textDecoration: "none" }}>
             Continue to workspace →
           </a>
         </section>
@@ -61,27 +220,28 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="auth-shell">
+    <main style={styles.main}>
       {/* Ambient background mesh */}
-      <div className="auth-mesh" aria-hidden="true">
-        <div className="auth-mesh-circle auth-mesh-1" />
-        <div className="auth-mesh-circle auth-mesh-2" />
+      <div style={styles.meshContainer} aria-hidden="true">
+        <div style={styles.mesh1} />
+        <div style={styles.mesh2} />
       </div>
 
-      <section className="auth-card" role="main">
+      <section style={styles.card} role="main">
         {/* Header */}
-        <div className="auth-header">
-          <span className="auth-brand-mark" aria-hidden="true">E</span>
-          <div>
-            <h1 className="auth-title">EviChain</h1>
-            <p className="auth-subtitle">Evidence Integrity Network</p>
+        <div>
+          <div style={styles.header}>
+            <span style={styles.brandMark} aria-hidden="true">E</span>
+            <h1 style={styles.brandText}>EviChain</h1>
           </div>
+          <p style={styles.subTitle}>Evidence Integrity Network</p>
         </div>
 
-        {/* Segmented tab control */}
-        <div className="seg-control" role="tablist" aria-label="Authentication mode">
+        {/* Toggle Sign in / Create account */}
+        <div style={styles.toggleContainer} role="tablist">
           <button
-            className={`seg-btn ${mode === "login" ? "seg-btn-active" : ""}`}
+            type="button"
+            style={{ ...styles.toggleBtn, ...(mode === "login" ? styles.toggleBtnActive : {}) }}
             role="tab"
             aria-selected={mode === "login"}
             onClick={() => { setMode("login"); setError(""); }}
@@ -89,35 +249,31 @@ export default function LoginPage() {
             Sign in
           </button>
           <button
-            className={`seg-btn ${mode === "register" ? "seg-btn-active" : ""}`}
+            type="button"
+            style={{ ...styles.toggleBtn, ...(mode === "register" ? styles.toggleBtnActive : {}) }}
             role="tab"
             aria-selected={mode === "register"}
             onClick={() => { setMode("register"); setError(""); }}
           >
-            Register
+            Create account
           </button>
         </div>
-
-        <p className="auth-copy">
-          {mode === "login"
-            ? "Enter your credentials to access the evidence workspace."
-            : "Create an operator account to start managing evidence."}
-        </p>
 
         <form
           ref={formRef}
           onSubmit={handleSubmit}
-          className="auth-form"
           suppressHydrationWarning
           noValidate
           role="tabpanel"
+          style={{ display: "flex", flexDirection: "column" }}
         >
           {mode === "register" && (
-            <div className="field">
-              <label className="field-label" htmlFor="name">Full name</label>
+            <div style={styles.formGroup}>
+              <label style={styles.label} htmlFor="name">Full name</label>
               <input
                 id="name"
                 className="input"
+                style={styles.customInput}
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -129,11 +285,12 @@ export default function LoginPage() {
             </div>
           )}
 
-          <div className="field">
-            <label className="field-label" htmlFor="email">Email address</label>
+          <div style={styles.formGroup}>
+            <label style={styles.label} htmlFor="email">Email address</label>
             <input
               id="email"
               className="input"
+              style={styles.customInput}
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -144,11 +301,12 @@ export default function LoginPage() {
             />
           </div>
 
-          <div className="field">
-            <label className="field-label" htmlFor="password">Password</label>
+          <div style={styles.formGroup}>
+            <label style={styles.label} htmlFor="password">Password</label>
             <input
               id="password"
               className="input"
+              style={styles.customInput}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -161,11 +319,12 @@ export default function LoginPage() {
           </div>
 
           {mode === "register" && (
-            <div className="field">
-              <label className="field-label" htmlFor="role">Access role</label>
+            <div style={styles.formGroup}>
+              <label style={styles.label} htmlFor="role">Access role</label>
               <select
                 id="role"
                 className="input"
+                style={styles.customInput}
                 value={role}
                 onChange={(e) =>
                   setRole(e.target.value as "Administrator" | "Investigator" | "Auditor" | "Custodian")
@@ -177,43 +336,34 @@ export default function LoginPage() {
                 <option value="Custodian">Custodian (evidence storage)</option>
                 <option value="Auditor">Auditor (read-only)</option>
               </select>
-
             </div>
           )}
 
           {error && (
-            <div className="alert-error" role="alert" aria-live="assertive">
+            <div style={styles.alertError} role="alert" aria-live="assertive">
               <span aria-hidden="true">⚠</span>
               {error}
             </div>
           )}
 
           <button
-            className={`btn btn-primary btn-lg btn-full${loading ? " btn-loading" : ""}`}
+            className={`btn btn-primary ${loading ? "btn-loading" : ""}`}
+            style={{ ...styles.primaryBtn, width: "100%", justifyContent: "center" }}
             type="submit"
             disabled={loading}
             suppressHydrationWarning
           >
             {!loading && (mode === "login" ? "Sign in" : "Create account")}
           </button>
-
-          <div className="auth-divider" aria-hidden="true">
-            <span>or</span>
-          </div>
-
-          <button
-            type="button"
-            className="btn btn-secondary btn-md btn-full"
-            onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
-            suppressHydrationWarning
-          >
-            {mode === "login" ? "Need an account? Register" : "Already have an account? Sign in"}
-          </button>
         </form>
 
-        <footer className="auth-footer">
-          <p>By continuing you agree to EviChain&rsquo;s Terms of Service and Privacy Policy.</p>
-        </footer>
+        <div style={styles.trustIndicators}>
+          <span>SHA-256 Verified</span>
+          <span>·</span>
+          <span>Court-Ready</span>
+          <span>·</span>
+          <span>Secure</span>
+        </div>
       </section>
     </main>
   );

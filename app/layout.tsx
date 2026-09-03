@@ -8,6 +8,8 @@ import { NotificationProvider } from "./notification-context";
 import ToastContainer from "./components/toast-container";
 import CommandPalette from "./components/command-palette";
 import InstallPWAPrompt from "./components/install-pwa-prompt";
+import ErrorBoundary from "./components/error-boundary";
+
 
 
 const inter = Inter({
@@ -56,11 +58,14 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           <NotificationProvider>
-            {children}
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
             <ToastContainer />
             <CommandPalette />
             <InstallPWAPrompt />
           </NotificationProvider>
+
 
         </AuthProvider>
       </body>

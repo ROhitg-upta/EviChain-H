@@ -3,16 +3,19 @@ import multer from "multer";
 import { createHash } from "crypto";
 import { z } from "zod";
 import * as archiver from "archiver";
-import { prisma } from "../db";
-
+import { prisma, normalizePrismaError } from "../db";
+import { getStorageAdapter } from "../storage";
 import { requireAuth, AuthedRequest, requireRole } from "../middleware";
+
 
 
 
 import { generateEvidenceCertificate } from "../services/pdf.service";
 import { notificationService } from "../services/notification.service";
+import { processEvidenceUpload, UploadError } from "../services/evidence-upload.service";
 
 const router = Router();
+
 
 // ── Allowed file types ────────────────────────────────────────────
 const ALLOWED_MIME = new Set([
@@ -80,64 +83,25 @@ router.post(
         return res.status(400).json({ error: "File is required" });
       }
 
-      const sha256 = createHash("sha256").update(file.buffer).digest("hex");
-      const storageKey = `evidence/${Date.now()}-${file.originalname}`;
-
-      const evidence = await prisma.evidence.create({
-        data: {
-          caseId: parsed.data.caseId ?? null,
-          name: parsed.data.name,
-          type: parsed.data.type,
-          ownerOrg: parsed.data.ownerOrg,
-          sizeBytes: file.size,
-          mimeType: file.mimetype,
-          sha256,
-          storageKey,
-          collectedById: req.userId!,
-          status: "PENDING",
-        },
-      });
-
-      await prisma.custodyEvent.create({
-        data: {
-          evidenceId: evidence.id,
-          action: "CREATED",
-          actorUserId: req.userId!,
-          note: "Evidence registered and SHA-256 fingerprint computed",
-        },
-      });
-
-      await prisma.auditLog.create({
-        data: {
-          actorUserId: req.userId!,
-          action: "evidence.upload",
-          resourceType: "evidence",
-          resourceId: evidence.id,
-          detailJson: {
-            name: evidence.name,
-            sha256: evidence.sha256,
-            sizeBytes: evidence.sizeBytes,
-            mimeType: evidence.mimeType,
-          },
-          ipAddress: req.ip,
-          userAgent: req.headers["user-agent"],
-        },
-      });
-
-      await notificationService.emitNotification(req.userId!, {
-        type: "success",
-        title: "Evidence Registered",
-        message: `Registered "${evidence.name}" with SHA-256 fingerprint.`,
-        link: `/evidence/${evidence.id}`,
+      const evidence = await processEvidenceUpload({
+        file,
+        caseId: parsed.data.caseId ?? null,
+        uploaderId: req.userId!,
+        name: parsed.data.name,
+        type: parsed.data.type,
+        ownerOrg: parsed.data.ownerOrg,
+        description: parsed.data.description,
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
       });
 
       return res.status(201).json({
         id: evidence.id,
-        name: evidence.name,
-        type: evidence.type,
-        ownerOrg: evidence.ownerOrg,
+        name: evidence.filename,
+        type: parsed.data.type,
+        ownerOrg: parsed.data.ownerOrg,
         sha256: evidence.sha256,
-        sizeBytes: evidence.sizeBytes,
+        sizeBytes: evidence.size,
         mimeType: evidence.mimeType,
         status: evidence.status,
         createdAt: evidence.createdAt,
@@ -211,7 +175,7 @@ router.post(
           createdItems.push(ev);
         }
         return createdItems;
-      });
+      }, { timeout: 30000, maxWait: 15000 });
 
       await prisma.auditLog.create({
         data: {
@@ -437,7 +401,8 @@ router.get(
 );
 
 // ═══════════════════════════════════════════════════════════════════
-// GET /evidence/:id  — Full detail with all custody events
+// ═══════════════════════════════════════════════════════════════════
+// GET /evidence/:id  — Full detail with current custodian and throttled access log
 // ═══════════════════════════════════════════════════════════════════
 router.get("/:id", requireAuth, async (req: AuthedRequest, res) => {
   try {
@@ -448,27 +413,44 @@ router.get("/:id", requireAuth, async (req: AuthedRequest, res) => {
       include: {
         case: { select: { id: true, title: true, status: true } },
         collectedBy: { select: { id: true, name: true, role: true } },
+        currentCustodian: { select: { id: true, name: true, role: true } },
         custodyEvents: {
           orderBy: { timestamp: "desc" },
           include: {
             actor: { select: { id: true, name: true, role: true } },
+            fromUser: { select: { id: true, name: true, role: true } },
+            toUser: { select: { id: true, name: true, role: true } },
           },
         },
       },
     });
 
     if (!evidence) {
-      return res.status(404).json({ error: "Evidence not found" });
+      return res.status(404).json({ code: "EVIDENCE_NOT_FOUND", error: "Evidence not found" });
     }
 
-    await prisma.custodyEvent.create({
-      data: {
+    // 5-minute throttling for ACCESSED custody events to prevent timeline spam
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const recentAccess = await prisma.custodyEvent.findFirst({
+      where: {
         evidenceId: id,
-        action: "ACCESSED",
         actorUserId: req.userId!,
-        note: "Evidence record viewed",
+        action: "ACCESSED",
+        timestamp: { gte: fiveMinutesAgo },
       },
     });
+
+    if (!recentAccess) {
+      await prisma.custodyEvent.create({
+        data: {
+          evidenceId: id,
+          action: "ACCESSED",
+          actorUserId: req.userId!,
+          ipAddress: req.ip,
+          note: "Evidence record viewed",
+        },
+      });
+    }
 
     await prisma.auditLog.create({
       data: {
@@ -484,93 +466,198 @@ router.get("/:id", requireAuth, async (req: AuthedRequest, res) => {
 
     return res.json(evidence);
   } catch (error) {
-    console.error("Evidence detail error:", error);
-    return res.status(500).json({ error: "Failed to get evidence" });
+    const norm = normalizePrismaError(error);
+    return res.status(norm.statusCode).json({ code: norm.code || "INTERNAL_ERROR", error: norm.message });
   }
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// POST /evidence/:id/transfer — Transfer custody of evidence
+// GET /evidence/:id/custody — Complete chronological chain of custody
+// ═══════════════════════════════════════════════════════════════════
+router.get("/:id/custody", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const id = req.params["id"] as string;
+
+    const evidence = await prisma.evidence.findUnique({
+      where: { id },
+      select: { id: true, name: true, currentCustodianId: true },
+    });
+
+    if (!evidence) {
+      return res.status(404).json({ code: "EVIDENCE_NOT_FOUND", error: "Evidence not found" });
+    }
+
+    const events = await prisma.custodyEvent.findMany({
+      where: { evidenceId: id },
+      orderBy: { timestamp: "asc" },
+      include: {
+        actor: { select: { id: true, name: true, role: true } },
+        fromUser: { select: { id: true, name: true, role: true } },
+        toUser: { select: { id: true, name: true, role: true } },
+      },
+    });
+
+    return res.json(events);
+  } catch (error) {
+    const norm = normalizePrismaError(error);
+    return res.status(norm.statusCode).json({ code: norm.code || "INTERNAL_ERROR", error: norm.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /evidence/:id/transfer — Transfer custody of evidence (Atomic & Role-Gated)
 // ═══════════════════════════════════════════════════════════════════
 router.post(
   "/:id/transfer",
   requireAuth,
-  requireRole("ADMINISTRATOR", "INVESTIGATOR", "CUSTODIAN"),
+  requireRole("ADMINISTRATOR", "INVESTIGATOR"),
   async (req: AuthedRequest, res) => {
     try {
       const id = req.params["id"] as string;
       const { toUserId, toLocation, fromLocation, note } = req.body as {
-        toUserId: string;
+        toUserId?: string;
         toLocation?: string;
         fromLocation?: string;
         note?: string;
       };
 
-      if (!toUserId) {
-        return res.status(400).json({ error: "toUserId is required" });
+      if (!toUserId || typeof toUserId !== "string") {
+        return res.status(400).json({ code: "RECIPIENT_REQUIRED", error: "toUserId is required" });
       }
 
-      const [evidence, toUser] = await Promise.all([
-        prisma.evidence.findUnique({ where: { id } }),
-        prisma.user.findUnique({ where: { id: toUserId }, select: { id: true, name: true } }),
-      ]);
-
-      if (!evidence) {
-        return res.status(404).json({ error: "Evidence not found" });
-      }
-      if (!toUser) {
-        return res.status(404).json({ error: "Recipient user not found" });
+      if (toUserId === req.userId) {
+        return res.status(400).json({ code: "TRANSFER_TO_SELF", error: "Cannot transfer custody of evidence to yourself." });
       }
 
-      const custodyEvent = await prisma.custodyEvent.create({
-        data: {
-          evidenceId: id,
-          action: "TRANSFERRED",
-          actorUserId: req.userId!,
-          fromLocation: fromLocation ?? null,
-          toLocation: toLocation ?? null,
-          note: note || `Custody transferred to ${toUser.name}`,
-        },
-        include: {
-          actor: { select: { id: true, name: true, role: true } },
-        },
-      });
-
-      await prisma.auditLog.create({
-        data: {
-          actorUserId: req.userId!,
-          action: "evidence.transfer",
-          resourceType: "evidence",
-          resourceId: id,
-          detailJson: {
-            toUserId,
-            toUserName: toUser.name,
-            fromLocation,
-            toLocation,
-            note,
+      const result = await prisma.$transaction(async (tx) => {
+        const evidence = await tx.evidence.findUnique({
+          where: { id },
+          include: {
+            currentCustodian: { select: { id: true, name: true, role: true } },
           },
-          ipAddress: req.ip,
-          userAgent: req.headers["user-agent"],
-        },
-      });
+        });
 
-      await notificationService.emitNotification(toUserId, {
-        type: "transfer",
-        title: "Evidence Custody Transferred",
-        message: `You have been assigned custody of evidence: "${evidence.name}".`,
-        link: `/evidence/${id}`,
-      });
+        if (!evidence) {
+          return { status: 404, data: { code: "EVIDENCE_NOT_FOUND", error: "Evidence not found" } };
+        }
 
-      return res.json({
-        message: "Custody transfer logged successfully",
-        custodyEvent,
-      });
+        if (evidence.status === "SEALED") {
+          return { status: 400, data: { code: "EVIDENCE_SEALED", error: "Cannot transfer sealed evidence." } };
+        }
+
+        // Ownership rule: caller must currently hold custody, or be an ADMINISTRATOR overriding
+        const isCurrentHolder = (evidence.currentCustodianId || evidence.collectedById) === req.userId;
+        const isAdmin = req.userRole === "ADMINISTRATOR";
+
+        if (!isCurrentHolder && !isAdmin) {
+          return {
+            status: 403,
+            data: {
+              code: "NOT_CURRENT_CUSTODIAN",
+              error: "Only the current custodian or an administrator can transfer custody of this evidence.",
+            },
+          };
+        }
+
+        // Recipient validation
+        const toUser = await tx.user.findUnique({
+          where: { id: toUserId },
+          select: { id: true, name: true, role: true },
+        });
+
+        if (!toUser) {
+          return { status: 404, data: { code: "RECIPIENT_NOT_FOUND", error: "Recipient user not found" } };
+        }
+
+        if (toUser.role === "AUDITOR") {
+          return {
+            status: 400,
+            data: {
+              code: "INVALID_CUSTODIAN_ROLE",
+              error: "Auditors are independent observers and cannot hold chain of custody.",
+            },
+          };
+        }
+
+        // Atomic custody transfer update
+        await tx.evidence.update({
+          where: { id },
+          data: { currentCustodianId: toUserId },
+        });
+
+        const fromHolderId = evidence.currentCustodianId || evidence.collectedById;
+        const defaultNote = `Custody transferred from ${evidence.currentCustodian?.name || "previous custodian"} to ${toUser.name}`;
+
+        const custodyEvent = await tx.custodyEvent.create({
+          data: {
+            evidenceId: id,
+            action: "TRANSFERRED",
+            actorUserId: req.userId!,
+            fromUserId: fromHolderId,
+            toUserId,
+            fromLocation: fromLocation ?? null,
+            toLocation: toLocation ?? null,
+            ipAddress: req.ip,
+            note: note?.trim() || defaultNote,
+          },
+          include: {
+            actor: { select: { id: true, name: true, role: true } },
+            fromUser: { select: { id: true, name: true, role: true } },
+            toUser: { select: { id: true, name: true, role: true } },
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            actorUserId: req.userId!,
+            action: "evidence.transfer",
+            resourceType: "evidence",
+            resourceId: id,
+            detailJson: {
+              fromUserId: fromHolderId,
+              toUserId,
+              toUserName: toUser.name,
+              reason: note?.trim() || defaultNote,
+            },
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+          },
+        });
+
+        return {
+          status: 200,
+          data: {
+            message: "Custody transfer logged successfully",
+            evidenceId: id,
+            currentCustodian: toUser,
+            custodyEvent,
+          },
+          notifyUserId: toUserId,
+          evidenceName: evidence.name,
+        };
+      }, { timeout: 30000, maxWait: 15000 });
+
+      if (result.status !== 200) {
+        return res.status(result.status).json(result.data);
+      }
+
+      if ("notifyUserId" in result && result.notifyUserId) {
+        await notificationService.emitNotification(result.notifyUserId, {
+          type: "transfer",
+          title: "Evidence Custody Transferred",
+          message: `You have been assigned custody of evidence: "${result.evidenceName}".`,
+          link: `/evidence/${id}`,
+        });
+      }
+
+      return res.json(result.data);
     } catch (error) {
-      console.error("Custody transfer error:", error);
-      return res.status(500).json({ error: "Failed to transfer custody" });
+      const norm = normalizePrismaError(error);
+      return res.status(norm.statusCode).json({ code: norm.code || "INTERNAL_ERROR", error: norm.message });
     }
   },
 );
+
 
 // ═══════════════════════════════════════════════════════════════════
 // GET /evidence/:id/certificate — Forensic PDF Hash Certificate
@@ -611,16 +698,34 @@ router.get("/:id/certificate", requireAuth, async (req: AuthedRequest, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// GET /evidence/:id/download
+// GET /evidence/:id/download — Authenticated, auditable file streaming
 // ═══════════════════════════════════════════════════════════════════
 router.get("/:id/download", requireAuth, async (req: AuthedRequest, res) => {
   try {
     const id = req.params["id"] as string;
 
+    // Explicit Auditor Download Policy Decision
+    if (req.userRole === "AUDITOR") {
+      return res.status(403).json({
+        code: "AUDITOR_DOWNLOAD_RESTRICTED",
+        error: "Auditors have read-only inspection rights and are restricted from downloading raw evidence binaries.",
+      });
+    }
+
     const evidence = await prisma.evidence.findUnique({ where: { id } });
 
     if (!evidence) {
-      return res.status(404).json({ error: "Evidence not found" });
+      return res.status(404).json({ code: "EVIDENCE_NOT_FOUND", error: "Evidence not found" });
+    }
+
+    const storage = getStorageAdapter();
+    const exists = await storage.exists(evidence.storageKey);
+
+    if (!exists) {
+      return res.status(404).json({
+        code: "STORAGE_OBJECT_NOT_FOUND",
+        error: "The physical evidence file was not found in storage.",
+      });
     }
 
     await prisma.custodyEvent.create({
@@ -628,7 +733,8 @@ router.get("/:id/download", requireAuth, async (req: AuthedRequest, res) => {
         evidenceId: id,
         action: "DOWNLOADED",
         actorUserId: req.userId!,
-        note: "Evidence download initiated",
+        ipAddress: req.ip,
+        note: `Evidence binary downloaded by ${req.userRole}`,
       },
     });
 
@@ -644,20 +750,18 @@ router.get("/:id/download", requireAuth, async (req: AuthedRequest, res) => {
       },
     });
 
-    return res.json({
-      id: evidence.id,
-      name: evidence.name,
-      storageKey: evidence.storageKey,
-      sha256: evidence.sha256,
-      sizeBytes: evidence.sizeBytes,
-      mimeType: evidence.mimeType,
-      note: "File storage not yet configured. Download logged in chain of custody.",
-    });
+    res.setHeader("Content-Type", evidence.mimeType || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(evidence.name)}"`);
+    res.setHeader("Content-Length", evidence.sizeBytes);
+
+    const stream = await storage.downloadStream(evidence.storageKey);
+    stream.pipe(res);
   } catch (error) {
-    console.error("Evidence download error:", error);
-    return res.status(500).json({ error: "Failed to process download" });
+    const norm = normalizePrismaError(error);
+    return res.status(norm.statusCode).json({ code: norm.code || "INTERNAL_ERROR", error: norm.message });
   }
 });
+
 
 // ── GET /evidence/:id/annotations ────────────────────────────────
 router.get("/:id/annotations", requireAuth, async (req: AuthedRequest, res) => {

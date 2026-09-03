@@ -1,12 +1,15 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import React, { FormEvent, useCallback, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { useAuth } from "../../auth-context";
 import { useNotifications } from "../../notification-context";
 import {
-  getCaseById, updateCase, getCaseComments, createCaseComment, downloadCaseSummaryPDF,
+  getCaseById, updateCase, getCaseComments, createCaseComment, downloadCaseSummaryPDF, uploadCaseEvidence,
   type CaseDetail, type EvidenceRecord, type CaseComment,
 } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
+
 
 
 // ── Comment sub-components ────────────────────────────────────────
@@ -252,7 +255,9 @@ const EV_STATUS_CLASS: Record<string, string> = {
 
 // ── Component ─────────────────────────────────────────────────────
 
-export default function CaseDetailPage({ params }: { params: { id: string } }) {
+export default function CaseDetailPage() {
+  const routeParams = useParams();
+  const id = typeof routeParams?.id === "string" ? routeParams.id : Array.isArray(routeParams?.id) ? routeParams.id[0] : "";
   const { user, loading: authLoading, accessToken, canEdit } = useAuth();
   const { toast } = useNotifications();
 
@@ -267,6 +272,25 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
   const [updateError, setUpdateError] = useState("");
   const [updateSuccess, setUpdateSuccess] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+
+  const loadCase = useCallback(() => {
+    if (!accessToken || !id) return;
+    setFetching(true);
+    setFetchError("");
+    getCaseById(accessToken, id)
+      .then((data) => {
+        setCaseData(data);
+        setNewStatus(data.status);
+      })
+      .catch((err: unknown) =>
+        setFetchError(err instanceof Error ? err.message : "Failed to load case"),
+      )
+      .finally(() => setFetching(false));
+  }, [accessToken, id]);
+
+  useEffect(() => {
+    loadCase();
+  }, [loadCase]);
 
   async function handleExportPdf() {
     if (!accessToken || !caseData) return;
@@ -288,24 +312,65 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
     }
   }
 
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-  }, [authLoading, user]);
+  // In-page evidence upload modal
 
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadName, setUploadName] = useState("");
+  const [uploadDesc, setUploadDesc] = useState("");
+  const [uploadType, setUploadType] = useState("DOCUMENT");
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadError, setUploadError] = useState("");
+  const [uploadSuccessHash, setUploadSuccessHash] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!accessToken) return;
-    setFetching(true);
-    getCaseById(accessToken, params.id)
-      .then((data) => {
-        setCaseData(data);
-        setNewStatus(data.status);
-      })
-      .catch((err: unknown) =>
-        setFetchError(err instanceof Error ? err.message : "Failed to load case"),
-      )
-      .finally(() => setFetching(false));
-  }, [accessToken, params.id]);
+  async function handleUploadEvidence(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken || !caseData || !uploadFile) return;
+
+    setUploading(true);
+    setUploadError("");
+    setUploadSuccessHash(null);
+    setUploadProgress(0);
+
+    try {
+      const res = await uploadCaseEvidence(
+        accessToken,
+        caseData.id,
+        uploadFile,
+        {
+          name: uploadName.trim() || undefined,
+          description: uploadDesc.trim() || undefined,
+          evidenceType: uploadType,
+        },
+        (pct) => setUploadProgress(pct),
+      );
+
+      setUploadSuccessHash(res.sha256);
+      toast({
+        type: "success",
+        title: "Evidence Uploaded",
+        message: `Registered "${res.filename}" with verified SHA-256.`,
+      });
+
+      // Refresh case details immediately so evidence table updates
+      const updated = await getCaseById(accessToken, id);
+      setCaseData(updated);
+
+      setTimeout(() => {
+        setShowUploadModal(false);
+        setUploadFile(null);
+        setUploadName("");
+        setUploadDesc("");
+        setUploadSuccessHash(null);
+        setUploadProgress(0);
+      }, 1600);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : "Evidence upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function handleStatusUpdate(e: FormEvent) {
     e.preventDefault();
@@ -314,7 +379,7 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
     setUpdateError("");
     setUpdateSuccess(false);
     try {
-      const updated = await updateCase(accessToken, params.id, { status: newStatus });
+      const updated = await updateCase(accessToken, id, { status: newStatus });
       setCaseData((prev) => prev ? { ...prev, status: updated.status } : prev);
       setUpdateSuccess(true);
       setTimeout(() => setUpdateSuccess(false), 3000);
@@ -328,27 +393,31 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
   // ── Loading / error ────────────────────────────────────────────
   if (authLoading || fetching) {
     return (
-      <main className="cases-shell">
-        <p className="cases-loading" role="status" aria-live="polite">Loading…</p>
-      </main>
+      <WorkspaceShell breadcrumbs={[{ label: "Cases", href: "/cases" }, { label: "Case Detail" }]}>
+        <div style={{ display: "grid", gap: 12 }}>
+          {[1,2,3].map(i => (
+            <div key={i} className="skeleton" style={{ height: 100, borderRadius: "var(--radius-md)" }} />
+          ))}
+        </div>
+      </WorkspaceShell>
     );
   }
 
   if (fetchError || !caseData) {
     return (
-      <main className="cases-shell">
-        <header className="ev-topbar">
-          <a className="ev-brand" href="/"><span className="brand-mark">E</span>
-            <span><strong>EviChain</strong><small>Case management</small></span>
-          </a>
-        </header>
-        <div className="error-message" style={{ marginTop: 40 }} role="alert">
+      <WorkspaceShell breadcrumbs={[{ label: "Cases", href: "/cases" }, { label: "Case Detail" }]}>
+        <div className="error-message" style={{ marginTop: 24 }} role="alert">
           {fetchError || "Case not found."}
         </div>
-        <a className="button button-secondary" style={{ marginTop: 16 }} href="/cases">
-          ← Back to cases
-        </a>
-      </main>
+        <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+          <button className="btn btn-primary" onClick={loadCase}>
+            Retry
+          </button>
+          <a className="btn btn-secondary" href="/cases">
+            ← Back to cases
+          </a>
+        </div>
+      </WorkspaceShell>
     );
   }
 
@@ -356,20 +425,7 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
 
   // ── Main render ────────────────────────────────────────────────
   return (
-    <main className="cases-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Case management</small></span>
-        </a>
-        <nav className="ev-nav" aria-label="Primary navigation">
-          <a href="/cases">← Cases</a>
-          <a href="/evidence">Evidence</a>
-          {user && (
-            <span className="operator" aria-label={user.name}>{user.initials}</span>
-          )}
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: "Cases", href: "/cases" }, { label: caseData.title }]}>
 
       {/* Page title */}
       <div className="page-header">
@@ -517,13 +573,14 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
                 <p className="eyebrow">LINKED EVIDENCE</p>
                 <h2>Evidence items</h2>
               </div>
-              <a
+              <button
+                type="button"
                 className="button button-primary small-button"
-                href={`/evidence/new?caseId=${caseData.id}`}
+                onClick={() => setShowUploadModal(true)}
                 aria-label="Upload new evidence for this case"
               >
                 + Add evidence
-              </a>
+              </button>
             </div>
 
             {evidence.length === 0 ? (
@@ -533,12 +590,13 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
                   Upload evidence files and they will automatically appear here once
                   linked to this case.
                 </p>
-                <a
+                <button
+                  type="button"
                   className="button button-primary small-button"
-                  href={`/evidence/new?caseId=${caseData.id}`}
+                  onClick={() => setShowUploadModal(true)}
                 >
                   Upload first evidence file →
-                </a>
+                </button>
               </div>
             ) : (
               <ol className="evidence-list" aria-label="Evidence linked to this case">
@@ -580,8 +638,201 @@ export default function CaseDetailPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
+      {/* ── Direct Evidence Upload Modal ───────────────────────────── */}
+      {showUploadModal && (
+        <div
+          className="modal-backdrop"
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            backdropFilter: "blur(2px)",
+          }}
+          role="dialog"
+          aria-labelledby="upload-modal-title"
+          aria-modal="true"
+        >
+          <div
+            className="modal-content"
+            style={{
+              background: "white",
+              padding: 24,
+              borderRadius: 8,
+              maxWidth: 520,
+              width: "92%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 id="upload-modal-title" style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+                Upload Case Evidence
+              </h3>
+              <button
+                type="button"
+                onClick={() => !uploading && setShowUploadModal(false)}
+                disabled={uploading}
+                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}
+                aria-label="Close dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 16px" }}>
+              Target Case: <strong>{caseData.title}</strong>
+            </p>
+
+            {uploadError && (
+              <div className="error-message" role="alert" style={{ marginBottom: 16, padding: "8px 12px" }}>
+                {uploadError}
+              </div>
+            )}
+
+            {uploadSuccessHash && (
+              <div
+                style={{
+                  background: "#ecfdf5",
+                  border: "1px solid #10b981",
+                  borderRadius: 6,
+                  padding: "12px",
+                  marginBottom: 16,
+                  fontSize: 13,
+                  color: "#065f46",
+                }}
+                role="status"
+              >
+                <strong>✓ File verified & cryptographic fingerprint created!</strong>
+                <p style={{ margin: "4px 0 0", fontFamily: "monospace", fontSize: 11, wordBreak: "break-all" }}>
+                  SHA-256: {uploadSuccessHash}
+                </p>
+              </div>
+            )}
+
+            <form onSubmit={handleUploadEvidence}>
+              <div style={{ marginBottom: 16 }}>
+                <label className="label" htmlFor="case-upload-file">
+                  Select Evidence File (Max 50MB) *
+                </label>
+                <input
+                  id="case-upload-file"
+                  type="file"
+                  required
+                  disabled={uploading}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) {
+                      setUploadFile(f);
+                      if (!uploadName) setUploadName(f.name);
+                    }
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px",
+                    border: "1px dashed #d1d5db",
+                    borderRadius: 6,
+                    background: "#f9fafb",
+                  }}
+                />
+                {uploadFile && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: "#4b5563" }}>
+                    Selected: <strong>{uploadFile.name}</strong> ({Math.round(uploadFile.size / 1024)} KB)
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label className="label" htmlFor="case-upload-name">
+                  Evidence Label / Name (Optional)
+                </label>
+                <input
+                  id="case-upload-name"
+                  type="text"
+                  className="input"
+                  placeholder="e.g. Memory Dump / CCTV Capture"
+                  value={uploadName}
+                  disabled={uploading}
+                  onChange={(e) => setUploadName(e.target.value)}
+                />
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                <label className="label" htmlFor="case-upload-type">
+                  Evidence Type
+                </label>
+                <select
+                  id="case-upload-type"
+                  className="select"
+                  value={uploadType}
+                  disabled={uploading}
+                  onChange={(e) => setUploadType(e.target.value)}
+                >
+                  <option value="DOCUMENT">Document / PDF</option>
+                  <option value="IMAGE">Image / Photograph</option>
+                  <option value="VIDEO">Video / CCTV</option>
+                  <option value="AUDIO">Audio Recording</option>
+                  <option value="DISK_IMAGE">Forensic Disk / Memory Dump</option>
+                  <option value="ARCHIVE">Zip / Archive</option>
+                  <option value="LOG">System / Network Log</option>
+                </select>
+              </div>
+
+              <div style={{ marginBottom: 18 }}>
+                <label className="label" htmlFor="case-upload-desc">
+                  Description / Acquisition Notes
+                </label>
+                <textarea
+                  id="case-upload-desc"
+                  className="textarea"
+                  rows={3}
+                  placeholder="Acquisition context, hardware source, or chain of custody initial notes..."
+                  value={uploadDesc}
+                  disabled={uploading}
+                  onChange={(e) => setUploadDesc(e.target.value)}
+                />
+              </div>
+
+              {uploading && uploadProgress > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4 }}>
+                    <span>Uploading & Hashing…</span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div style={{ height: 6, background: "#e5e7eb", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${uploadProgress}%`, height: "100%", background: "#0f845a", transition: "width 0.2s" }} />
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  disabled={uploading}
+                  onClick={() => setShowUploadModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="button button-primary"
+                  disabled={uploading || !uploadFile}
+                >
+                  {uploading ? "Processing…" : "Upload & Compute Hash"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ── Comments section ─────────────────────────────────────── */}
-      <CommentsSection caseId={params.id} />
-    </main>
+      <CommentsSection caseId={id} />
+    </WorkspaceShell>
   );
 }

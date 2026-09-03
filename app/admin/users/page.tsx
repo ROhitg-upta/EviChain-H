@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../auth-context";
 import { useNotifications } from "../../notification-context";
 import { getAllUsers, updateUserRole, type UserRecord } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 
 
@@ -28,11 +29,7 @@ export default function AdminUsersPage() {
   const [error, setError]       = useState("");
   const [search, setSearch]     = useState("");
 
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-    if (!authLoading && user && user.role !== "Administrator")
-      window.location.replace("/");
-  }, [authLoading, user]);
+  
 
   useEffect(() => {
     if (!accessToken) return;
@@ -52,27 +49,20 @@ export default function AdminUsersPage() {
     return !q || `${u.name} ${u.email} ${u.role}`.toLowerCase().includes(q);
   });
 
-  if (authLoading) return <main className="cases-shell"><p className="cases-loading">Loading…</p></main>;
+  if (authLoading) return <WorkspaceShell breadcrumbs={[{ label: 'Admin', href: '/admin' }, { label: 'Users' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}><p className="cases-loading">Loading…</p></div>
+</WorkspaceShell>;
 
   return (
-    <main className="cases-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Admin · Users</small></span>
-        </a>
-        <nav className="ev-nav">
-          <a href="/admin">← Admin</a>
-          <a href="/admin/settings">Settings</a>
-          {user && <span className="operator" aria-label={user.name}>{user.initials}</span>}
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: 'Admin', href: '/admin' }, { label: 'Users' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
+      
 
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: "24px" }}>
         <div>
-          <p className="eyebrow">SYSTEM ADMINISTRATION</p>
-          <h1>User management</h1>
-          <p className="ev-page-sub">All registered operator accounts.</p>
+          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>SYSTEM ADMINISTRATION</p>
+          <h1 style={{ color: "var(--text-primary)", fontSize: "24px", margin: "8px 0" }}>User management</h1>
+          <p className="ev-page-sub" style={{ color: "var(--text-secondary)" }}>All registered operator accounts.</p>
         </div>
       </div>
 
@@ -87,7 +77,7 @@ export default function AdminUsersPage() {
       </div>
 
       {error && (
-        <div className="error-message" role="alert">
+        <div className="error-message" style={{ color: "var(--accent-danger)", border: "1px solid var(--accent-danger)", background: "rgba(244, 63, 94, 0.1)", padding: "12px", borderRadius: "6px" }} role="alert">
           {error}
         </div>
       )}
@@ -167,6 +157,7 @@ export default function AdminUsersPage() {
           </div>
         )}
       </div>
-    </main>
+    </div>
+</WorkspaceShell>
   );
 }

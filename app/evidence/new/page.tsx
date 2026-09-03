@@ -5,6 +5,7 @@ import {
 } from "react";
 import { useAuth } from "../../auth-context";
 import { getCases, uploadEvidence, bulkUploadEvidence, type CaseRecord, type UploadEvidenceResult, type EvidenceRecord } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 
 const ACCEPTED_MIME = [
@@ -158,17 +159,20 @@ export default function NewEvidencePage() {
   }
 
 
-  if (authLoading) return <main className="evidence-shell"><p className="ev-loading">Loading…</p></main>;
+  if (authLoading) {
+    return (
+      <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: "Upload" }]}>
+        <div style={{ display: "grid", gap: 12 }}>
+          <div className="skeleton" style={{ height: 200, borderRadius: "var(--radius-md)" }} />
+        </div>
+      </WorkspaceShell>
+    );
+  }
 
   // ── Success screen ───────────────────────────────────────────────
   if (result) {
     return (
-      <main className="evidence-shell">
-        <header className="ev-topbar">
-          <a className="ev-brand" href="/"><span className="brand-mark">E</span>
-            <span><strong>EviChain</strong><small>Evidence workspace</small></span>
-          </a>
-        </header>
+      <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: "Upload Success" }]}>
         <div className="upload-success-card" role="main" aria-live="polite">
           <div className="upload-success-icon" aria-hidden="true">✓</div>
           <h1>Evidence registered</h1>
@@ -185,7 +189,7 @@ export default function NewEvidencePage() {
             </div>
             <div>
               <dt>Size</dt>
-              <dd>{fmtBytes(result.sizeBytes)}</dd>
+              <dd>{fmtBytes(result.sizeBytes ?? result.size ?? 0)}</dd>
             </div>
             <div>
               <dt>Status</dt>
@@ -201,72 +205,56 @@ export default function NewEvidencePage() {
           </div>
 
           <div className="upload-success-actions">
-            <a className="button button-primary" href={`/evidence/${result.id}`}>
+            <a className="btn btn-primary" href={`/evidence/${result.id}`}>
               View evidence record →
             </a>
-            <a className="button button-secondary" href="/evidence">
+            <a className="btn btn-secondary" href="/evidence">
               Back to registry
             </a>
-            <button className="button button-secondary" type="button" onClick={resetForm}>
+            <button className="btn btn-secondary" type="button" onClick={resetForm}>
               Upload another file
             </button>
           </div>
         </div>
-      </main>
+      </WorkspaceShell>
     );
   }
 
   // ── Batch success screen ──────────────────────────────────────────
   if (batchResult) {
     return (
-      <main className="evidence-shell">
-        <header className="ev-topbar">
-          <a className="ev-brand" href="/"><span className="brand-mark">E</span>
-            <span><strong>EviChain</strong><small>Evidence workspace</small></span>
-          </a>
-        </header>
+      <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: "Batch Upload Success" }]}>
         <div className="upload-success-card" role="main" aria-live="polite">
           <div className="upload-success-icon" aria-hidden="true">✓</div>
           <h1>Batch upload complete</h1>
           <p className="ev-page-sub">{batchResult.count} evidence files registered with SHA-256 fingerprints.</p>
           <div style={{ maxHeight: 320, overflowY: "auto", margin: "20px 0", textAlign: "left" }}>
             {batchResult.items.map((ev) => (
-              <div key={ev.id} style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-
+              <div key={ev.id} style={{ padding: "10px 14px", borderBottom: "1px solid var(--border-default)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <strong>{ev.name}</strong>
-                  <div style={{ fontSize: 11, color: "var(--muted)" }}>{ev.sha256.slice(0, 16)}… · {fmtBytes(ev.sizeBytes)}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-disabled)" }}>{ev.sha256.slice(0, 16)}… · {fmtBytes(ev.sizeBytes)}</div>
                 </div>
-                <a className="button button-secondary small-button" href={`/evidence/${ev.id}`}>View</a>
+                <a className="btn btn-secondary btn-sm" href={`/evidence/${ev.id}`}>View</a>
               </div>
             ))}
           </div>
           <div className="upload-success-actions">
-            <a className="button button-primary" href="/evidence">
+            <a className="btn btn-primary" href="/evidence">
               View evidence registry →
             </a>
-            <button className="button button-secondary" type="button" onClick={resetForm}>
+            <button className="btn btn-secondary" type="button" onClick={resetForm}>
               Upload more files
             </button>
           </div>
         </div>
-      </main>
+      </WorkspaceShell>
     );
   }
 
   // ── Upload form ──────────────────────────────────────────────────
   return (
-    <main className="evidence-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Evidence workspace</small></span>
-        </a>
-        <nav className="ev-nav">
-          <a href="/evidence">← Registry</a>
-          <a href="/cases">Cases</a>
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: "Upload" }]}>
 
 
       <div className="page-header">
@@ -590,7 +578,6 @@ export default function NewEvidencePage() {
         )}
       </form>
       )}
-    </main>
-
+    </WorkspaceShell>
   );
 }

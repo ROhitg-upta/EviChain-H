@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../auth-context";
 import { useNotifications } from "../notification-context";
 import { getAuditLogs, updateMyProfile, changePassword, type AuditLog } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 
 type Tab = "general" | "security" | "preferences" | "activity";
@@ -46,9 +47,7 @@ export default function ProfilePage() {
   const [activity, setActivity]         = useState<AuditLog[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
 
-  useEffect(() => {
-    if (!authLoading && !user) window.location.replace("/login");
-  }, [authLoading, user]);
+  
 
   // Seed form from user
   useEffect(() => {
@@ -154,9 +153,11 @@ function fmtAction(action: string): string {
   }
   if (authLoading || !user) {
     return (
-      <main className="profile-shell">
+      <WorkspaceShell breadcrumbs={[{ label: 'Profile' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
         <p className="cases-loading">Loading…</p>
-      </main>
+      </div>
+</WorkspaceShell>
     );
   }
 
@@ -169,28 +170,15 @@ function fmtAction(action: string): string {
   ];
 
   return (
-    <main className="profile-shell">
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span><strong>EviChain</strong><small>Profile & settings</small></span>
-        </a>
-        <nav className="ev-nav">
-          <a href="/">← Dashboard</a>
-          <button
-            className="button button-secondary small-button"
-            onClick={signOut}
-          >
-            Sign out
-          </button>
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: 'Profile' }]}>
+<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
+      
 
-      <div className="page-header">
+      <div className="page-header" style={{ marginBottom: "24px" }}>
         <div>
-          <p className="eyebrow">ACCOUNT</p>
-          <h1>Profile &amp; preferences</h1>
-          <p className="ev-page-sub">Manage your account, security, and notification settings.</p>
+          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>ACCOUNT</p>
+          <h1 style={{ color: "var(--text-primary)", fontSize: "24px", margin: "8px 0" }}>Profile &amp; preferences</h1>
+          <p className="ev-page-sub" style={{ color: "var(--text-secondary)" }}>Manage your account, security, and notification settings.</p>
         </div>
       </div>
 
@@ -227,7 +215,7 @@ function fmtAction(action: string): string {
           {/* General */}
           {tab === "general" && (
             <div className="profile-card">
-              <h2>General information</h2>
+              <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>General information</h2>
               <form onSubmit={handleProfileSave} className="profile-form" noValidate>
                 <div className="field">
                   <label className="field-label" htmlFor="p-name">Full name</label>
@@ -273,7 +261,7 @@ function fmtAction(action: string): string {
           {/* Security */}
           {tab === "security" && (
             <div className="profile-card">
-              <h2>Change password</h2>
+              <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Change password</h2>
               <form onSubmit={handlePasswordChange} className="profile-form" noValidate>
                 <div className="field">
                   <label className="field-label" htmlFor="p-cur">Current password</label>
@@ -329,7 +317,7 @@ function fmtAction(action: string): string {
 
               {/* Danger zone */}
               <div className="profile-danger-zone">
-                <p className="eyebrow" style={{ color: "var(--danger-text)" }}>Danger zone</p>
+                <p className="eyebrow" style={{ color: "var(--danger-text)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>Danger zone</p>
                 <div className="profile-danger-row">
                   <div>
                     <strong>Sign out everywhere</strong>
@@ -349,7 +337,7 @@ function fmtAction(action: string): string {
           {/* Notification preferences */}
           {tab === "preferences" && (
             <div className="profile-card">
-              <h2>Notification preferences</h2>
+              <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Notification preferences</h2>
               <p className="profile-card-desc">
                 Choose which notifications you want to receive. Preferences are saved to your account.
               </p>
@@ -391,7 +379,7 @@ function fmtAction(action: string): string {
           {/* Activity */}
           {tab === "activity" && (
             <div className="profile-card">
-              <h2>Activity history</h2>
+              <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Activity history</h2>
               <p className="profile-card-desc">
                 All actions performed under your account, most recent first.
               </p>
@@ -420,6 +408,7 @@ function fmtAction(action: string): string {
           )}
         </section>
       </div>
-    </main>
+    </div>
+</WorkspaceShell>
   );
 }

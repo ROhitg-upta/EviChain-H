@@ -1,11 +1,23 @@
+import "dotenv/config";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { Response, CookieOptions } from "express";
 
-const JWT_SECRET = process.env.JWT_SECRET as string;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN as string;
-const REFRESH_SECRET = process.env.REFRESH_SECRET as string;
-const REFRESH_EXPIRES_IN = process.env.REFRESH_EXPIRES_IN as string;
+function getJwtSecret(): string {
+  return process.env.JWT_SECRET || "default-secret-key-min-32-chars-evichain-dev";
+}
+
+function getRefreshSecret(): string {
+  return process.env.REFRESH_SECRET || "default-refresh-secret-min-32-chars-evichain-dev";
+}
+
+function getJwtExpiresIn(): import("ms").StringValue {
+  return (process.env.JWT_EXPIRES_IN || "15m") as import("ms").StringValue;
+}
+
+function getRefreshExpiresIn(): import("ms").StringValue {
+  return (process.env.REFRESH_EXPIRES_IN || "7d") as import("ms").StringValue;
+}
 
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 12);
@@ -16,21 +28,20 @@ export async function verifyPassword(password: string, hash: string) {
 }
 
 export function signAccessToken(userId: string, role: string) {
-  return jwt.sign({ sub: userId, role }, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN as import("ms").StringValue,
+  return jwt.sign({ sub: userId, role }, getJwtSecret(), {
+    expiresIn: getJwtExpiresIn(),
   });
 }
 
 export function signRefreshToken(userId: string) {
-  return jwt.sign({ sub: userId }, REFRESH_SECRET, {
-    expiresIn: REFRESH_EXPIRES_IN as import("ms").StringValue,
+  return jwt.sign({ sub: userId }, getRefreshSecret(), {
+    expiresIn: getRefreshExpiresIn(),
   });
 }
 
 export const REFRESH_COOKIE_NAME = "refreshToken";
 
 export const REFRESH_COOKIE_OPTIONS: CookieOptions = {
-
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
   sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
@@ -52,9 +63,9 @@ export function clearRefreshCookie(res: Response) {
 }
 
 export function verifyAccessToken(token: string) {
-  return jwt.verify(token, JWT_SECRET) as { sub: string; role: string };
+  return jwt.verify(token, getJwtSecret()) as { sub: string; role: string };
 }
 
 export function verifyRefreshToken(token: string) {
-  return jwt.verify(token, REFRESH_SECRET) as { sub: string };
-}
+  return jwt.verify(token, getRefreshSecret()) as { sub: string };
+}

@@ -1,6 +1,7 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import React, { ChangeEvent, FormEvent, useCallback, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { useAuth } from "../../auth-context";
 import {
   getEvidenceById,
@@ -14,6 +15,7 @@ import {
   type PublicVerifyResult,
   type UserRecord,
 } from "@/lib/api";
+import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -49,26 +51,37 @@ function triggerBlobDownload(blob: Blob, filename: string) {
   window.URL.revokeObjectURL(url);
 }
 
-// Map custody event action → display label, colour class, and aria description
-const EVENT_META: Record<string, { label: string; cls: string; desc: string }> = {
-  CREATED:     { label: "Registered",   cls: "ev-event--created",     desc: "Evidence was registered in the system" },
-  ACCESSED:    { label: "Accessed",     cls: "ev-event--accessed",    desc: "Evidence record was viewed" },
-  TRANSFERRED: { label: "Transferred",  cls: "ev-event--transferred", desc: "Custody transferred to another party" },
-  DOWNLOADED:  { label: "Downloaded",   cls: "ev-event--downloaded",  desc: "Evidence was downloaded" },
-  DELETED:     { label: "Deleted",      cls: "ev-event--deleted",     desc: "Evidence was deleted" },
+function fmtRelative(iso: string): string {
+
+  const diff = Date.now() - new Date(iso).getTime();
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return "Just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return fmtDate(iso);
+}
+
+const EVENT_META: Record<string, { label: string; icon: string; cls: string; desc: string; bg: string; color: string; border: string }> = {
+  CREATED:     { label: "Registered",   icon: "📁", cls: "ev-event--created",     desc: "Evidence registered with SHA-256 fingerprint", bg: "rgba(34, 211, 238, 0.12)", color: "var(--accent-active, #22d3ee)", border: "rgba(34, 211, 238, 0.3)" },
+  TRANSFERRED: { label: "Transferred",  icon: "⇄", cls: "ev-event--transferred", desc: "Chain of custody transferred", bg: "rgba(251, 191, 36, 0.12)", color: "var(--accent-pending, #fbbf24)", border: "rgba(251, 191, 36, 0.3)" },
+  ACCESSED:    { label: "Accessed",     icon: "👁", cls: "ev-event--accessed",    desc: "Evidence detail record viewed", bg: "rgba(255, 255, 255, 0.05)", color: "var(--text-secondary, #9ca3af)", border: "var(--border-default)" },
+  DOWNLOADED:  { label: "Downloaded",   icon: "⤓", cls: "ev-event--downloaded",  desc: "Authenticated evidence binary downloaded", bg: "rgba(181, 245, 66, 0.12)", color: "var(--accent-verified, #b5f542)", border: "rgba(181, 245, 66, 0.3)" },
+  DELETED:     { label: "Deleted",      icon: "🗑", cls: "ev-event--deleted",     desc: "Evidence was deleted", bg: "rgba(244, 63, 94, 0.12)", color: "var(--accent-danger, #f43f5e)", border: "rgba(244, 63, 94, 0.3)" },
 };
 
 function eventMeta(action: string) {
-  return EVENT_META[action.toUpperCase()] ?? { label: action, cls: "", desc: action };
+  return EVENT_META[action.toUpperCase()] ?? { label: action, icon: "•", cls: "", desc: action, bg: "rgba(255, 255, 255, 0.05)", color: "var(--text-primary)", border: "var(--border-default)" };
 }
 
 // ── Component ─────────────────────────────────────────────────────
 
-export default function EvidenceDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function EvidenceDetailPage() {
+  const routeParams = useParams();
+  const id = typeof routeParams?.id === "string" ? routeParams.id : Array.isArray(routeParams?.id) ? routeParams.id[0] : "";
   const { user, loading: authLoading, accessToken } = useAuth();
 
   const [record, setRecord] = useState<EvidenceRecord | null>(null);
@@ -90,6 +103,10 @@ export default function EvidenceDetailPage({
   // Download
   const [downloadState, setDownloadState] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [downloadError, setDownloadError] = useState("");
+  const [downloadToast, setDownloadToast] = useState("");
+
+  // Timeline UI expansion
+  const [expandedTimeline, setExpandedTimeline] = useState(false);
 
   // PDF Certificate Download
   const [certDownloading, setCertDownloading] = useState(false);
@@ -104,24 +121,26 @@ export default function EvidenceDetailPage({
   const [transferError, setTransferError] = useState("");
   const [transferSuccess, setTransferSuccess] = useState("");
 
+
   useEffect(() => {
     if (!authLoading && !user) window.location.replace("/login");
   }, [authLoading, user]);
 
-  function loadEvidence() {
-    if (!accessToken) return;
+  const loadEvidence = useCallback(() => {
+    if (!accessToken || !id) return;
     setFetching(true);
-    getEvidenceById(accessToken, params.id)
+    setFetchError("");
+    getEvidenceById(accessToken, id)
       .then(setRecord)
       .catch((err: unknown) =>
         setFetchError(err instanceof Error ? err.message : "Failed to load record"),
       )
       .finally(() => setFetching(false));
-  }
+  }, [accessToken, id]);
 
   useEffect(() => {
     loadEvidence();
-  }, [accessToken, params.id]);
+  }, [loadEvidence]);
 
   // Load users when opening transfer modal
   useEffect(() => {
@@ -150,7 +169,7 @@ export default function EvidenceDetailPage({
       const res = await verifyByHash(record.sha256);
       setServerVerify(res);
     } catch {
-      setServerVerify({ sha256: record.sha256, matched: false, evidence: null });
+      setServerVerify({ sha256: record.sha256, matched: false, evidence: undefined });
     } finally {
       setServerVerifying(false);
     }
@@ -158,12 +177,25 @@ export default function EvidenceDetailPage({
 
   async function handleDownload() {
     if (!accessToken || !record) return;
+    const roleUpper = user?.role ? String(user.role).toUpperCase() : "";
+    if (roleUpper === "AUDITOR") {
+      setDownloadError("Auditors have read-only inspection access and cannot download raw evidence binaries.");
+      return;
+    }
+
+
     setDownloadState("loading");
     setDownloadError("");
     try {
-      await downloadEvidence(accessToken, record.id);
+      const res = await downloadEvidence(accessToken, record.id);
+      triggerBlobDownload(res.blob, res.filename);
       setDownloadState("done");
+      setDownloadToast(`✓ Downloaded ${res.filename}`);
       loadEvidence();
+      setTimeout(() => {
+        setDownloadState("idle");
+        setDownloadToast("");
+      }, 4000);
     } catch (err: unknown) {
       setDownloadState("error");
       setDownloadError(err instanceof Error ? err.message : "Download failed");
@@ -186,6 +218,10 @@ export default function EvidenceDetailPage({
   async function handleTransferSubmit(e: FormEvent) {
     e.preventDefault();
     if (!accessToken || !record || !transferToUserId) return;
+    if (transferToUserId === user?.id) {
+      setTransferError("Cannot transfer custody to yourself.");
+      return;
+    }
     setTransferring(true);
     setTransferError("");
     try {
@@ -198,6 +234,7 @@ export default function EvidenceDetailPage({
       setShowTransferModal(false);
       setTransferNote("");
       setTransferToLocation("");
+      setTransferToUserId("");
       loadEvidence();
       setTimeout(() => setTransferSuccess(""), 4000);
     } catch (err: unknown) {
@@ -206,6 +243,7 @@ export default function EvidenceDetailPage({
       setTransferring(false);
     }
   }
+
 
   async function copyHash() {
     if (!record) return;
@@ -217,57 +255,45 @@ export default function EvidenceDetailPage({
   // ── Loading / error states ────────────────────────────────────────
   if (authLoading || fetching) {
     return (
-      <main className="evidence-shell">
-        <p className="ev-loading" role="status" aria-live="polite">Loading…</p>
-      </main>
+      <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: "Evidence Detail" }]}>
+        <div style={{ display: "grid", gap: 12 }}>
+          {[1,2,3].map(i => (
+            <div key={i} className="skeleton" style={{ height: 100, borderRadius: "var(--radius-md)" }} />
+          ))}
+        </div>
+      </WorkspaceShell>
     );
   }
 
   if (fetchError || !record) {
     return (
-      <main className="evidence-shell">
-        <header className="ev-topbar">
-          <a className="ev-brand" href="/">
-            <span className="brand-mark">E</span>
-            <span><strong>EviChain</strong><small>Evidence workspace</small></span>
-          </a>
-        </header>
-        <div className="error-message" style={{ marginTop: 40 }} role="alert">
+      <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: "Evidence Detail" }]}>
+        <div className="error-message" style={{ marginTop: 24 }} role="alert">
           {fetchError || "Evidence record not found."}
         </div>
-        <a className="button button-secondary" style={{ marginTop: 16 }} href="/evidence">
-          ← Back to evidence list
-        </a>
-      </main>
+        <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+          <button className="btn btn-primary" onClick={loadEvidence}>
+            Retry
+          </button>
+          <a className="btn btn-secondary" href="/evidence">
+            ← Back to evidence list
+          </a>
+        </div>
+      </WorkspaceShell>
     );
   }
+
+  const userRoleUpper = user?.role ? String(user.role).toUpperCase() : "";
+  const isCurrentCustodian = (record.currentCustodianId || record.collectedById) === user?.id;
+  const isAdmin = userRoleUpper === "ADMINISTRATOR";
+  const isAuditor = userRoleUpper === "AUDITOR";
+  const canTransfer = (isCurrentCustodian && userRoleUpper === "INVESTIGATOR") || isAdmin;
 
   const events: CustodyEvent[] = record.custodyEvents ?? [];
 
   // ── Main render ──────────────────────────────────────────────────
   return (
-    <main className="evidence-shell">
-      {/* Top bar */}
-      <header className="ev-topbar">
-        <a className="ev-brand" href="/" aria-label="EviChain home">
-          <span className="brand-mark" aria-hidden="true">E</span>
-          <span>
-            <strong>EviChain</strong>
-            <small>Evidence registry</small>
-          </span>
-        </a>
-        <nav className="ev-nav" aria-label="Primary navigation">
-          <a href="/evidence">← Registry</a>
-          <a href="/cases">Cases</a>
-          <a href="/verify">Public verify</a>
-          {user && (
-            <span className="ev-user-badge">
-              <span className="operator" aria-hidden="true">{user.initials}</span>
-              <span>{user.name}</span>
-            </span>
-          )}
-        </nav>
-      </header>
+    <WorkspaceShell breadcrumbs={[{ label: "Evidence", href: "/evidence" }, { label: record.name }]}>
 
       {/* Page title */}
       <div className="page-header">
@@ -286,8 +312,27 @@ export default function EvidenceDetailPage({
               </a>
             )}
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: "var(--muted, #6b7280)" }}>Current Custodian:</span>
+            <span style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "4px 10px",
+              borderRadius: 20,
+              background: "#ecfdf5",
+              border: "1px solid #10b981",
+              color: "#065f46",
+              fontSize: 13,
+              fontWeight: 600,
+            }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981" }} />
+              {record.currentCustodian?.name ?? record.collectedBy?.name ?? "Unknown"}
+              <small style={{ color: "#047857", fontWeight: 500 }}>({record.currentCustodian?.role ?? record.collectedBy?.role ?? "INVESTIGATOR"})</small>
+            </span>
+          </div>
         </div>
-        <div className="ev-header-actions" style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+        <div className="ev-header-actions" style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
           <button
             className="button button-secondary small-button"
             onClick={handleDownloadCertificate}
@@ -296,13 +341,17 @@ export default function EvidenceDetailPage({
           >
             {certDownloading ? "Generating PDF…" : "📄 Hash Certificate (PDF)"}
           </button>
-          <button
-            className="button button-secondary small-button"
-            onClick={() => setShowTransferModal(true)}
-            title="Transfer custody to another investigator or custodian"
-          >
-            ⇄ Transfer custody
-          </button>
+
+          {canTransfer && (
+            <button
+              className="button button-secondary small-button"
+              onClick={() => setShowTransferModal(true)}
+              title="Transfer custody to another investigator or custodian"
+            >
+              ⇄ Transfer custody
+            </button>
+          )}
+
           <a
             className="button button-secondary small-button"
             href={`/evidence/${record.id}/annotate`}
@@ -310,16 +359,20 @@ export default function EvidenceDetailPage({
           >
             ✏ Annotate
           </a>
+
           <button
             className="button button-primary small-button"
             onClick={handleDownload}
-            disabled={downloadState === "loading"}
+            disabled={downloadState === "loading" || isAuditor}
+            title={isAuditor ? "Auditors have read-only inspection access: download restricted" : "Download this evidence and log custody event"}
             aria-label="Download this evidence and log custody event"
           >
             {downloadState === "loading"
-              ? <span className="loading-spinner">Logging…</span>
+              ? <span className="loading-spinner">Downloading…</span>
               : downloadState === "done"
               ? "Downloaded ✓"
+              : isAuditor
+              ? "Download Restricted"
               : "Download"}
           </button>
         </div>
@@ -330,14 +383,15 @@ export default function EvidenceDetailPage({
           ✓ {transferSuccess}
         </div>
       )}
+      {downloadToast && (
+        <div className="ev-info-banner" role="status" style={{ background: "#ecfdf5", borderColor: "#a7f3d0", color: "#065f46" }}>
+          {downloadToast}
+        </div>
+      )}
       {downloadError && (
         <div className="error-message" role="alert">{downloadError}</div>
       )}
-      {downloadState === "done" && (
-        <div className="ev-info-banner" role="status">
-          Download logged in chain of custody. File storage is not yet configured — contact your administrator for the file.
-        </div>
-      )}
+
 
       {/* Detail layout */}
       <div className="detail-grid">
@@ -468,41 +522,130 @@ export default function EvidenceDetailPage({
         {/* Right column — custody timeline */}
         <div className="detail-right">
           <div className="detail-card timeline-card">
+
             <p className="eyebrow">CHAIN OF CUSTODY</p>
-            <div className="timeline-header-row">
-              <h2>Custody timeline</h2>
-              <span aria-label={`${events.length} custody events`}>{events.length} events</span>
+            <div className="timeline-header-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h2 style={{ margin: 0 }}>Custody timeline</h2>
+              <span className="ev-chip" aria-label={`${events.length} custody events`}>{events.length} events</span>
             </div>
 
             {events.length === 0 ? (
-              <p className="ev-muted" style={{ padding: "16px 0" }}>No custody events recorded.</p>
+              <div style={{ padding: "28px 16px", textAlign: "center", color: "var(--muted, #6b7280)" }}>
+                <p style={{ margin: 0, fontWeight: 500 }}>No custody events recorded yet.</p>
+                <small>Initial custody registration will appear here.</small>
+              </div>
             ) : (
-              <ol className="timeline" aria-label="Custody event timeline">
-                {events.map((ev) => {
-                  const meta = eventMeta(ev.action);
-                  return (
-                    <li className={`timeline-event ${meta.cls}`} key={ev.id}>
-                      <span
-                        className={`timeline-dot timeline-dot--${meta.cls.replace("ev-event--", "")}`}
-                        aria-hidden="true"
-                      />
-                      <div className="timeline-content">
-                        <strong>{meta.label}</strong>
-                        <small>
-                          {ev.actor?.name ?? "System"} ·{" "}
-                          {new Intl.DateTimeFormat("en-IN", {
-                            dateStyle: "medium", timeStyle: "short",
-                          }).format(new Date(ev.timestamp))}
-                        </small>
-                        <p>{ev.note}</p>
-                        {ev.toLocation && (
-                          <small style={{ color: "var(--muted)" }}>Location: {ev.toLocation}</small>
+              <div>
+                <ol className="timeline" style={{ listStyle: "none", padding: 0, margin: 0 }} aria-label="Custody event timeline">
+                  {(expandedTimeline ? events : events.slice(0, 5)).map((ev, idx) => {
+                    const meta = eventMeta(ev.action);
+                    return (
+                      <li
+                        key={ev.id}
+                        style={{
+                          display: "flex",
+                          gap: 14,
+                          position: "relative",
+                          paddingBottom: idx === (expandedTimeline ? events.length : Math.min(events.length, 5)) - 1 ? 0 : 20,
+                        }}
+                      >
+                        {/* Timeline connector vertical line */}
+                        {idx < (expandedTimeline ? events.length : Math.min(events.length, 5)) - 1 && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              left: 15,
+                              top: 32,
+                              bottom: 0,
+                              width: 2,
+                              background: "#e5e7eb",
+                            }}
+                            aria-hidden="true"
+                          />
                         )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
+
+                        {/* Action Icon Badge */}
+                        <div
+                          style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: "50%",
+                            background: meta.bg,
+                            border: `1.5px solid ${meta.border}`,
+                            color: meta.color,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 14,
+                            fontWeight: 700,
+                            flexShrink: 0,
+                            zIndex: 1,
+                          }}
+                          aria-hidden="true"
+                        >
+                          {meta.icon}
+                        </div>
+
+                        {/* Event Content */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6 }}>
+                            <strong style={{ fontSize: 14, color: "#111827" }}>{meta.label}</strong>
+                            <small
+                              style={{ color: "#6b7280", fontSize: 12 }}
+                              title={new Intl.DateTimeFormat("en-IN", { dateStyle: "long", timeStyle: "medium" }).format(new Date(ev.timestamp))}
+                            >
+                              {fmtRelative(ev.timestamp)}
+                            </small>
+                          </div>
+
+                          <div style={{ fontSize: 12, color: "#4b5563", marginTop: 2 }}>
+                            Actor: <strong>{ev.actor?.name ?? "System"}</strong>{" "}
+                            {ev.actor?.role && (
+                              <span style={{ fontSize: 11, background: "#f3f4f6", padding: "1px 5px", borderRadius: 4, color: "#374151" }}>
+                                {ev.actor.role}
+                              </span>
+                            )}
+                          </div>
+
+                          {ev.action === "TRANSFERRED" && (
+                            <div style={{
+                              margin: "6px 0",
+                              padding: "6px 10px",
+                              background: "#fffbeb",
+                              border: "1px solid #fef3c7",
+                              borderRadius: 6,
+                              fontSize: 12,
+                              color: "#92400e",
+                            }}>
+                              <span>From: <strong>{ev.fromUser?.name || "Previous Holder"}</strong></span>
+                              <span style={{ margin: "0 6px" }}>→</span>
+                              <span>To: <strong>{ev.toUser?.name || "New Custodian"}</strong></span>
+                            </div>
+                          )}
+
+                          <p style={{ margin: "4px 0 0", fontSize: 13, color: "#374151" }}>{ev.note}</p>
+                          {ev.toLocation && (
+                            <small style={{ color: "#6b7280", display: "block", marginTop: 2 }}>
+                              Location: {ev.toLocation}
+                            </small>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+
+                {events.length > 5 && (
+                  <button
+                    type="button"
+                    className="button button-secondary small-button"
+                    style={{ marginTop: 12, width: "100%" }}
+                    onClick={() => setExpandedTimeline(!expandedTimeline)}
+                  >
+                    {expandedTimeline ? "Show fewer events ↑" : `Show all ${events.length} events (+${events.length - 5} older) ↓`}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -510,55 +653,127 @@ export default function EvidenceDetailPage({
 
       {/* Custody Transfer Modal */}
       {showTransferModal && (
-        <div className="modal-backdrop" style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-          <div className="modal-content" style={{ background: "white", padding: 24, borderRadius: 8, maxWidth: 480, width: "90%" }}>
-            <h2 style={{ marginTop: 0, marginBottom: 8 }}>Transfer Custody</h2>
-            <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
-              Transfer formal custody of <strong>{record.name}</strong> to another operator. An immutable custody event will be recorded.
+        <div
+          className="modal-backdrop"
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            backdropFilter: "blur(2px)",
+          }}
+          role="dialog"
+          aria-labelledby="transfer-modal-title"
+          aria-modal="true"
+        >
+          <div
+            className="modal-content"
+            style={{
+              background: "white",
+              padding: 24,
+              borderRadius: 8,
+              maxWidth: 500,
+              width: "92%",
+              boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h2 id="transfer-modal-title" style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+                Transfer Evidence Custody
+              </h2>
+              <button
+                type="button"
+                onClick={() => { setShowTransferModal(false); setTransferError(""); }}
+                disabled={transferring}
+                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}
+                aria-label="Close transfer dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            <p style={{ fontSize: 13, color: "var(--muted, #6b7280)", marginBottom: 16 }}>
+              Transfer formal legal custody of <strong>{record.name}</strong> to another verified investigator or custodian.
             </p>
-            {transferError && <div className="error-message" style={{ marginBottom: 12 }}>{transferError}</div>}
+
+            {/* Current Custodian Line */}
+            <div style={{ fontSize: 13, background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 6, padding: "8px 12px", marginBottom: 14 }}>
+              Current Custodian: <strong>{record.currentCustodian?.name ?? record.collectedBy?.name ?? "Unknown"}</strong> ({record.currentCustodian?.role ?? record.collectedBy?.role ?? "INVESTIGATOR"})
+            </div>
+
+            {/* Confirmation Summary if recipient is selected */}
+            {(() => {
+              const target = usersList.find((u) => u.id === transferToUserId);
+              return target ? (
+                <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontSize: 13, color: "#1e40af" }}>
+                  Confirm transfer of custody from <strong>{record.currentCustodian?.name || record.collectedBy?.name || "Current Custodian"}</strong> to <strong>{target.name} ({target.role})</strong>?
+                </div>
+              ) : null;
+            })()}
+
+            {transferError && (
+              <div className="error-message" role="alert" style={{ marginBottom: 12, padding: "8px 12px" }}>
+                {transferError}
+              </div>
+            )}
+
             <form onSubmit={handleTransferSubmit}>
               <div className="form-group" style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Recipient Operator *</label>
+                <label className="label" htmlFor="transfer-recipient">Recipient Operator (Investigator / Custodian) *</label>
                 <select
-                  className="input"
+                  id="transfer-recipient"
+                  className="select"
                   value={transferToUserId}
                   onChange={(e) => setTransferToUserId(e.target.value)}
                   required
+                  disabled={transferring}
                   style={{ width: "100%" }}
                 >
-                  <option value="">Select recipient operator…</option>
+                  <option value="">Select recipient investigator…</option>
                   {usersList
-                    .filter((u) => u.id !== user?.id)
+                    .filter((u) => u.id !== user?.id && u.role !== "AUDITOR")
                     .map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.name} ({u.role}) — {u.email}
                       </option>
                     ))}
                 </select>
+                <small style={{ color: "#6b7280", fontSize: 11, marginTop: 4, display: "block" }}>
+                  Note: Auditors have read-only inspection access and cannot hold chain of custody.
+                </small>
               </div>
+
               <div className="form-group" style={{ marginBottom: 14 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Destination Location</label>
+                <label className="label" htmlFor="transfer-location">Destination / Transfer Location</label>
                 <input
+                  id="transfer-location"
                   type="text"
                   className="input"
                   value={transferToLocation}
+                  disabled={transferring}
                   onChange={(e) => setTransferToLocation(e.target.value)}
-                  placeholder="e.g. Evidence Locker B-14, Forensics Lab 2"
+                  placeholder="e.g. Forensics Vault A, Locker 14"
                   style={{ width: "100%" }}
                 />
               </div>
+
               <div className="form-group" style={{ marginBottom: 18 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Custody Transfer Note</label>
+                <label className="label" htmlFor="transfer-note">Transfer Reason / Chain of Custody Note</label>
                 <textarea
-                  className="input"
+                  id="transfer-note"
+                  className="textarea"
                   value={transferNote}
+                  disabled={transferring}
                   onChange={(e) => setTransferNote(e.target.value)}
-                  placeholder="Reason for transfer, condition of evidence, or transfer protocol..."
+                  placeholder="Reason for handoff, physical condition, forensic handover protocol..."
                   rows={3}
                   style={{ width: "100%" }}
                 />
               </div>
+
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
                 <button
                   type="button"
@@ -580,6 +795,7 @@ export default function EvidenceDetailPage({
           </div>
         </div>
       )}
-    </main>
+    </WorkspaceShell>
   );
 }
+
