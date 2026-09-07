@@ -226,11 +226,12 @@ async function performSilentRefresh(): Promise<string | null> {
 }
 
 /** Shared fetch wrapper: throws on network error with a friendly message.
- *  Includes credentials by default and automatically retries with a refreshed token on 401. */
+ *  Includes credentials by default, automatically retries network failures, and refreshes token on 401. */
 async function apiFetch(
   url: string,
   init?: RequestInit,
   isRetry = false,
+  networkAttempt = 0,
 ): Promise<Response> {
   const mergedInit: RequestInit = {
     ...init,
@@ -240,7 +241,12 @@ async function apiFetch(
   let res: Response;
   try {
     res = await fetch(url, mergedInit);
-  } catch {
+  } catch (err) {
+    if (networkAttempt < 2) {
+      const backoffMs = (networkAttempt + 1) * 350;
+      await new Promise((r) => setTimeout(r, backoffMs));
+      return apiFetch(url, init, isRetry, networkAttempt + 1);
+    }
     throw new Error(
       "Unable to connect to the EviChain API. Confirm that the backend is running on port 4000.",
     );
@@ -255,7 +261,7 @@ async function apiFetch(
       const headers = new Headers(mergedInit.headers);
       headers.set("Authorization", `Bearer ${newAccessToken}`);
 
-      return apiFetch(url, { ...mergedInit, headers }, true);
+      return apiFetch(url, { ...mergedInit, headers }, true, 0);
     }
 
     // Refresh failed or returned null — clear local session and redirect
@@ -1130,9 +1136,9 @@ export async function updateMyProfile(
 export async function changePassword(
   token: string,
   data: { currentPassword: string; newPassword: string },
-): Promise<{ message: string }> {
-  const res = await apiFetch(`${API_URL}/users/me/password`, {
-    method: "PATCH",
+): Promise<{ message: string; revokedSessions?: boolean }> {
+  const res = await apiFetch(`${API_URL}/profile/change-password`, {
+    method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
@@ -1140,8 +1146,9 @@ export async function changePassword(
     body: JSON.stringify(data),
   });
   if (!res.ok) {
-    const err = await safeJson<{ error: string }>(res);
-    throw new Error(err.error || "Failed to change password");
+    const err = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof err.error === "object" ? err.error.message : err.error;
+    throw new Error(msg || "Failed to change password");
   }
   return safeJson(res);
 }
@@ -1643,15 +1650,51 @@ export async function downloadEvidenceCsv(
   return res.blob();
 }
 
-// ─── Users API ────────────────────────────────────────────────────────────────
+// ─── Users & Admin Management API ─────────────────────────────────────────────
 
 export interface UserRecord {
   id: string;
   email: string;
   name: string;
   role: "ADMINISTRATOR" | "INVESTIGATOR" | "AUDITOR" | "CUSTODIAN";
+  isActive?: boolean;
+  lastLogin?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AdminUsersResponse {
+  items: UserRecord[];
+  users: UserRecord[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalItems: number;
+    totalPages: number;
+  };
+}
+
+export interface SystemSettings {
+  organizationName: string;
+  retentionPolicyDays: number;
+  requireMfa: boolean;
+  allowPublicVerification: boolean;
+  sessionTimeoutMinutes: number;
+}
+
+export interface SecurityOverview {
+  userId: string;
+  email: string;
+  lastLogin: string | null;
+  accountCreated: string;
+  activeSessions: number;
+  recentEvents: Array<{
+    id: string;
+    action: string;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+    timestamp: string;
+  }>;
 }
 
 export async function getAllUsers(token: string): Promise<UserRecord[]> {
@@ -1667,13 +1710,58 @@ export async function getAllUsers(token: string): Promise<UserRecord[]> {
   return safeJson<UserRecord[]>(res);
 }
 
-export async function updateUserRole(
+export async function getAdminUsers(
+  token: string,
+  params?: { page?: number; pageSize?: number; role?: string; status?: string; q?: string },
+): Promise<AdminUsersResponse> {
+  const qp = new URLSearchParams();
+  if (params?.page) qp.set("page", String(params.page));
+  if (params?.pageSize) qp.set("pageSize", String(params.pageSize));
+  if (params?.role) qp.set("role", params.role);
+  if (params?.status) qp.set("status", params.status);
+  if (params?.q) qp.set("q", params.q);
 
+  const res = await apiFetch(`${API_URL}/admin/users?${qp.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to fetch admin users");
+  }
+
+  return safeJson<AdminUsersResponse>(res);
+}
+
+export async function createAdminUser(
+  token: string,
+  data: { name: string; email: string; password: string; role: string },
+): Promise<{ message: string; user: UserRecord }> {
+  const res = await apiFetch(`${API_URL}/admin/users`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to create user");
+  }
+
+  return safeJson(res);
+}
+
+export async function updateAdminUserRole(
   token: string,
   id: string,
   role: "ADMINISTRATOR" | "INVESTIGATOR" | "AUDITOR" | "CUSTODIAN",
-): Promise<UserRecord> {
-  const res = await apiFetch(`${API_URL}/users/${id}`, {
+): Promise<{ message: string; user: UserRecord }> {
+  const res = await apiFetch(`${API_URL}/admin/users/${id}/role`, {
     method: "PATCH",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1683,26 +1771,144 @@ export async function updateUserRole(
   });
 
   if (!res.ok) {
-    const e = await safeJson<{ error: string }>(res);
-    throw new Error(e.error || "Failed to update user role");
-  }
-
-  return safeJson<UserRecord>(res);
-}
-
-export async function deleteUser(token: string, id: string): Promise<{ message: string }> {
-  const res = await apiFetch(`${API_URL}/users/${id}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!res.ok) {
-    const e = await safeJson<{ error: string }>(res);
-    throw new Error(e.error || "Failed to delete user");
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to update user role");
   }
 
   return safeJson(res);
 }
 
+export async function updateAdminUserStatus(
+  token: string,
+  id: string,
+  isActive: boolean,
+): Promise<{ message: string; user: UserRecord }> {
+  const res = await apiFetch(`${API_URL}/admin/users/${id}/status`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ isActive }),
+  });
 
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to update user status");
+  }
 
+  return safeJson(res);
+}
+
+export async function updateUserRole(
+  token: string,
+  id: string,
+  role: "ADMINISTRATOR" | "INVESTIGATOR" | "AUDITOR" | "CUSTODIAN",
+): Promise<UserRecord> {
+  return (await updateAdminUserRole(token, id, role)).user;
+}
+
+export async function deleteUser(token: string, id: string): Promise<{ message: string }> {
+  const res = await apiFetch(`${API_URL}/admin/users/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to delete user");
+  }
+
+  return safeJson(res);
+}
+
+export async function getAdminSettings(token: string): Promise<SystemSettings> {
+  const res = await apiFetch(`${API_URL}/admin/settings`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to load system settings");
+  }
+
+  return safeJson<SystemSettings>(res);
+}
+
+export async function updateAdminSettings(
+  token: string,
+  settings: Partial<SystemSettings>,
+): Promise<{ message: string; settings: SystemSettings }> {
+  const res = await apiFetch(`${API_URL}/admin/settings`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(settings),
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to update system settings");
+  }
+
+  return safeJson(res);
+}
+
+// ─── Profile API ─────────────────────────────────────────────────────────────
+
+export async function getProfile(token: string): Promise<UserRecord> {
+  const res = await apiFetch(`${API_URL}/profile`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to fetch profile");
+  }
+
+  return safeJson<UserRecord>(res);
+}
+
+export async function updateProfile(
+  token: string,
+  data: { name: string },
+): Promise<{ message: string; user: UserRecord }> {
+  const res = await apiFetch(`${API_URL}/profile`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to update profile");
+  }
+
+  return safeJson(res);
+}
+
+export async function getProfileSecurity(token: string): Promise<SecurityOverview> {
+  const res = await apiFetch(`${API_URL}/profile/security`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to fetch security overview");
+  }
+
+  return safeJson<SecurityOverview>(res);
+}

@@ -5,6 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "dev:server": "npm --prefix server run dev",
+    "api:start": "npx pm2 start ecosystem.config.js",
+    "api:stop": "npx pm2 stop evichain-api",
+    "api:restart": "npx pm2 restart evichain-api",
+    "api:status": "npx pm2 status",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

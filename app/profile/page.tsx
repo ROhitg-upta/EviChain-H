@@ -1,60 +1,69 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "../auth-context";
 import { useNotifications } from "../notification-context";
 import {
   getAuditLogs,
-  updateMyProfile,
+  updateProfile,
   changePassword,
   getNotificationPreferences,
   updateNotificationPreferences,
+  getProfileSecurity,
   type AuditLog,
+  type SecurityOverview,
 } from "@/lib/api";
 import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 type Tab = "general" | "security" | "preferences" | "activity";
 
 interface NotificationPrefs {
-  caseUpdates:     boolean;
+  caseUpdates: boolean;
   evidenceUploads: boolean;
-  custodyTransfers:boolean;
-  securityAlerts:  boolean;
-  auditActivity:   boolean;
-  reportReady:     boolean;
-  weeklyDigest:    boolean;
+  custodyTransfers: boolean;
+  securityAlerts: boolean;
+  auditActivity: boolean;
+  reportReady: boolean;
+  weeklyDigest: boolean;
 }
 
 export default function ProfilePage() {
+  const router = useRouter();
   const { user, loading: authLoading, accessToken, signOut } = useAuth();
   const { toast } = useNotifications();
   const [tab, setTab] = useState<Tab>("general");
 
   // General
-  const [name, setName]               = useState("");
+  const [name, setName] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
 
-  // Security
+  // Security Form
   const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword]         = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [savingPassword, setSavingPassword]   = useState(false);
-  const [passwordError, setPasswordError]     = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  // Security Overview
+  const [securityData, setSecurityData] = useState<SecurityOverview | null>(null);
+  const [loadingSecurity, setLoadingSecurity] = useState(false);
 
   // Notification prefs
   const [prefs, setPrefs] = useState<NotificationPrefs>({
-    caseUpdates:     true,
+    caseUpdates: true,
     evidenceUploads: true,
-    custodyTransfers:true,
-    securityAlerts:  true,
-    auditActivity:   false,
-    reportReady:     true,
-    weeklyDigest:    false,
+    custodyTransfers: true,
+    securityAlerts: true,
+    auditActivity: false,
+    reportReady: true,
+    weeklyDigest: false,
   });
   const [savingPrefs, setSavingPrefs] = useState(false);
 
   // Activity
-  const [activity, setActivity]         = useState<AuditLog[]>([]);
+  const [activity, setActivity] = useState<AuditLog[]>([]);
   const [loadingActivity, setLoadingActivity] = useState(false);
 
   // Seed form from user
@@ -76,6 +85,16 @@ export default function ProfilePage() {
       .catch(() => {});
   }, [accessToken]);
 
+  // Load security overview
+  useEffect(() => {
+    if (tab !== "security" || !accessToken) return;
+    setLoadingSecurity(true);
+    getProfileSecurity(accessToken)
+      .then(setSecurityData)
+      .catch(() => {})
+      .finally(() => setLoadingSecurity(false));
+  }, [tab, accessToken]);
+
   // Load activity when tab switches
   useEffect(() => {
     if (tab !== "activity" || !accessToken) return;
@@ -91,10 +110,14 @@ export default function ProfilePage() {
     if (!accessToken || !name.trim()) return;
     setSavingProfile(true);
     try {
-      await updateMyProfile(accessToken, { name: name.trim() });
+      await updateProfile(accessToken, { name: name.trim() });
       toast({ type: "success", title: "Profile updated successfully" });
     } catch (err: unknown) {
-      toast({ type: "error", title: "Update failed", message: err instanceof Error ? err.message : "Unknown error" });
+      toast({
+        type: "error",
+        title: "Update failed",
+        message: err instanceof Error ? err.message : "Unknown error",
+      });
     } finally {
       setSavingProfile(false);
     }
@@ -103,6 +126,7 @@ export default function ProfilePage() {
   async function handlePasswordChange(e: FormEvent) {
     e.preventDefault();
     setPasswordError("");
+    setPasswordSuccess(false);
 
     if (newPassword.length < 8) {
       setPasswordError("New password must be at least 8 characters.");
@@ -119,8 +143,20 @@ export default function ProfilePage() {
         currentPassword,
         newPassword,
       });
-      toast({ type: "success", title: "Password changed successfully" });
-      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      setPasswordSuccess(true);
+      toast({
+        type: "success",
+        title: "Password Changed",
+        message: "All sessions have been revoked. Redirecting to login…",
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+
+      setTimeout(async () => {
+        await signOut();
+        router.push("/login");
+      }, 2500);
     } catch (err: unknown) {
       setPasswordError(err instanceof Error ? err.message : "Failed to change password");
     } finally {
@@ -128,12 +164,14 @@ export default function ProfilePage() {
     }
   }
 
-
   async function handlePrefsSave() {
     if (!accessToken) return;
     setSavingPrefs(true);
     try {
-      const saved = await updateNotificationPreferences(accessToken, prefs as unknown as Record<string, boolean>);
+      const saved = await updateNotificationPreferences(
+        accessToken,
+        prefs as unknown as Record<string, boolean>,
+      );
       setPrefs((prev) => ({
         ...prev,
         ...(saved as unknown as Partial<NotificationPrefs>),
@@ -141,301 +179,403 @@ export default function ProfilePage() {
       }));
       toast({ type: "success", title: "Notification preferences saved" });
     } catch (err) {
-      toast({ type: "error", title: "Save failed", message: err instanceof Error ? err.message : "Unknown error" });
+      toast({
+        type: "error",
+        title: "Save failed",
+        message: err instanceof Error ? err.message : "Unknown error",
+      });
     } finally {
       setSavingPrefs(false);
     }
   }
 
-/** Map dot-notation action names to human-readable labels. */
-function fmtAction(action: string): string {
-  const map: Record<string, string> = {
-    "auth.register":       "Account created",
-    "auth.login":          "Signed in",
-    "evidence.upload":     "Evidence uploaded",
-    "evidence.view":       "Evidence viewed",
-    "evidence.download":   "Evidence downloaded",
-    "evidence.annotate":   "Evidence annotated",
-    "case.create":         "Case created",
-    "case.update":         "Case updated",
-    "case.link_evidence":  "Evidence linked to case",
-    "case.comment":        "Comment added",
-    "user.update_profile": "Profile updated",
-    "user.change_password":"Password changed",
-    "user.admin_update":   "User updated by admin",
-    "user.delete":         "User deleted",
-  };
-  return map[action] ?? action.replace(/\./g, " › ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-  function fmtDate(iso: string) {
+  function fmtDate(iso?: string | null) {
+    if (!iso) return "Never";
     return new Intl.DateTimeFormat("en-IN", {
-      dateStyle: "medium", timeStyle: "short",
+      dateStyle: "medium",
+      timeStyle: "short",
     }).format(new Date(iso));
   }
+
   if (authLoading || !user) {
     return (
-      <WorkspaceShell breadcrumbs={[{ label: 'Profile' }]}>
-<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
-        <p className="cases-loading">Loading…</p>
-      </div>
-</WorkspaceShell>
+      <WorkspaceShell breadcrumbs={[{ label: "Profile" }]}>
+        <div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
+          <p className="cases-loading">Loading operator profile…</p>
+        </div>
+      </WorkspaceShell>
     );
   }
 
-
   const TABS: { key: Tab; label: string; icon: string }[] = [
-    { key: "general",     label: "General",          icon: "○" },
-    { key: "security",    label: "Security",          icon: "⬡" },
-    { key: "preferences", label: "Notifications",     icon: "◉" },
-    { key: "activity",    label: "Activity history",  icon: "≡" },
+    { key: "general", label: "General", icon: "👤" },
+    { key: "security", label: "Security & Sessions", icon: "🛡️" },
+    { key: "preferences", label: "Notifications", icon: "🔔" },
+    { key: "activity", label: "Audit Trail", icon: "📊" },
   ];
 
   return (
-    <WorkspaceShell breadcrumbs={[{ label: 'Profile' }]}>
-<div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
-      
-
-      <div className="page-header" style={{ marginBottom: "24px" }}>
-        <div>
-          <p className="eyebrow" style={{ color: "var(--text-disabled)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>ACCOUNT</p>
-          <h1 style={{ color: "var(--text-primary)", fontSize: "24px", margin: "8px 0" }}>Profile &amp; preferences</h1>
-          <p className="ev-page-sub" style={{ color: "var(--text-secondary)" }}>Manage your account, security, and notification settings.</p>
-        </div>
-      </div>
-
-      <div className="profile-layout">
-        {/* Sidebar */}
-        <aside className="profile-sidebar">
-          <div className="profile-summary">
-            <div className="profile-avatar-large" aria-hidden="true">
-              {user.name.charAt(0).toUpperCase()}
+    <WorkspaceShell breadcrumbs={[{ label: "Profile" }]}>
+      <div style={{ background: "var(--surface-base)", minHeight: "100%", padding: "24px", color: "var(--text-primary)" }}>
+        
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <div style={{ width: 52, height: 52, borderRadius: "50%", background: "var(--surface-card)", border: "2px solid var(--accent-primary)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 18, color: "var(--accent-primary)" }}>
+              {user.name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase()}
             </div>
-            <p className="profile-name">{user.name}</p>
-            <p className="profile-email">{user.email}</p>
-            <span className="badge badge-brand">{user.role}</span>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+                  {user.name}
+                </h1>
+                <span style={{ fontSize: 11, padding: "3px 10px", borderRadius: 12, fontWeight: 700, background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa", border: "1px solid rgba(59, 130, 246, 0.3)" }}>
+                  {user.role}
+                </span>
+              </div>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "4px 0 0" }}>
+                {user.email} · Operator ID: {user.id.slice(0, 8)}…
+              </p>
+            </div>
           </div>
+        </div>
 
-          <nav className="profile-nav" aria-label="Profile sections">
-            {TABS.map((t) => (
+        {/* Tab Navigation */}
+        <div style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--border-subtle)", marginBottom: 24 }}>
+          {TABS.map((t) => {
+            const active = tab === t.key;
+            return (
               <button
                 key={t.key}
-                className={`profile-nav-item${tab === t.key ? " active" : ""}`}
                 onClick={() => setTab(t.key)}
-                aria-current={tab === t.key ? "page" : undefined}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "10px 18px",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: active ? "var(--accent-primary)" : "var(--text-secondary)",
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: active ? "2px solid var(--accent-primary)" : "2px solid transparent",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
               >
-                <span aria-hidden="true">{t.icon}</span>
+                <span>{t.icon}</span>
                 {t.label}
               </button>
-            ))}
-          </nav>
-        </aside>
+            );
+          })}
+        </div>
 
-        {/* Content */}
-        <section className="profile-content">
+        {/* ── TAB 1: GENERAL ────────────────────────────────────────── */}
+        {tab === "general" && (
+          <div style={{ maxWidth: 640 }}>
+            <div className="panel" style={{ padding: 24, background: "var(--surface-card)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>
+                Personal Information
+              </h2>
 
-          {/* General */}
-          {tab === "general" && (
-            <div className="profile-card">
-              <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>General information</h2>
-              <form onSubmit={handleProfileSave} className="profile-form" noValidate>
-                <div className="field">
-                  <label className="field-label" htmlFor="p-name">Full name</label>
+              <form onSubmit={handleProfileSave} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+                    Full Legal Name
+                  </label>
                   <input
-                    id="p-name"
+                    required
                     className="input"
-                    type="text"
+                    style={{ width: "100%", fontSize: 13 }}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    required
                   />
                 </div>
-                <div className="field">
-                  <label className="field-label" htmlFor="p-email">Email address</label>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+                    Email Address (Read-only)
+                  </label>
                   <input
-                    id="p-email"
-                    className="input"
-                    type="email"
-                    value={user.email}
                     disabled
+                    className="input"
+                    style={{ width: "100%", fontSize: 13, opacity: 0.6, cursor: "not-allowed" }}
+                    value={user.email}
                   />
-                  <small className="field-hint">
-                    Email cannot be changed. Contact an administrator if needed.
+                  <small style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 4, display: "block" }}>
+                    Email modification requires administrator intervention.
                   </small>
                 </div>
-                <div className="field">
-                  <label className="field-label">Access role</label>
-                  <span className="badge badge-brand">{user.role}</span>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+                    Clearance Role
+                  </label>
+                  <input
+                    disabled
+                    className="input"
+                    style={{ width: "100%", fontSize: 13, opacity: 0.6, cursor: "not-allowed" }}
+                    value={user.role}
+                  />
                 </div>
-                <div className="profile-form-actions">
+
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
                   <button
                     type="submit"
-                    className="btn btn-primary btn-md"
-                    disabled={savingProfile || name === user.name}
+                    disabled={savingProfile}
+                    className="btn btn-primary"
+                    style={{ padding: "8px 20px", fontSize: 13, fontWeight: 600 }}
                   >
-                    {savingProfile ? <span className="loading-spinner">Saving…</span> : "Save changes"}
+                    {savingProfile ? "Saving…" : "Save Changes"}
                   </button>
                 </div>
               </form>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Security */}
-          {tab === "security" && (
-            <div className="profile-card">
-              <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Change password</h2>
-              <form onSubmit={handlePasswordChange} className="profile-form" noValidate>
-                <div className="field">
-                  <label className="field-label" htmlFor="p-cur">Current password</label>
+        {/* ── TAB 2: SECURITY & SESSIONS ────────────────────────────── */}
+        {tab === "security" && (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(0, 1fr)", gap: 24, alignItems: "start" }}>
+            
+            {/* Password Change Form */}
+            <div className="panel" style={{ padding: 24, background: "var(--surface-card)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <span style={{ fontSize: 18 }}>🔑</span>
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>
+                  Change Master Password
+                </h2>
+              </div>
+
+              {passwordSuccess && (
+                <div style={{ background: "rgba(34, 197, 94, 0.15)", border: "1px solid rgba(34, 197, 94, 0.3)", color: "#4ade80", padding: "12px 16px", borderRadius: 6, marginBottom: 16, fontSize: 13 }}>
+                  Password changed successfully. All active sessions have been revoked. Redirecting to login…
+                </div>
+              )}
+
+              {passwordError && (
+                <div style={{ background: "rgba(244, 63, 94, 0.15)", border: "1px solid rgba(244, 63, 94, 0.3)", color: "#f87171", padding: "12px 16px", borderRadius: 6, marginBottom: 16, fontSize: 13 }}>
+                  {passwordError}
+                </div>
+              )}
+
+              <form onSubmit={handlePasswordChange} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+                    Current Password
+                  </label>
                   <input
-                    id="p-cur"
-                    className="input"
+                    required
                     type="password"
+                    className="input"
+                    style={{ width: "100%", fontSize: 13 }}
                     value={currentPassword}
                     onChange={(e) => setCurrentPassword(e.target.value)}
-                    required
-                    autoComplete="current-password"
                   />
                 </div>
-                <div className="field">
-                  <label className="field-label" htmlFor="p-new">New password</label>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+                    New Password (min 8 characters)
+                  </label>
                   <input
-                    id="p-new"
-                    className="input"
+                    required
                     type="password"
+                    className="input"
+                    style={{ width: "100%", fontSize: 13 }}
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    minLength={8}
-                    required
-                    autoComplete="new-password"
                   />
-                  <small className="field-hint">At least 8 characters.</small>
                 </div>
-                <div className="field">
-                  <label className="field-label" htmlFor="p-confirm">Confirm new password</label>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+                    Confirm New Password
+                  </label>
                   <input
-                    id="p-confirm"
-                    className="input"
+                    required
                     type="password"
+                    className="input"
+                    style={{ width: "100%", fontSize: 13 }}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                    autoComplete="new-password"
                   />
                 </div>
-                {passwordError && (
-                  <div className="alert-error" role="alert">{passwordError}</div>
-                )}
-                <div className="profile-form-actions">
+
+                <div style={{ background: "var(--surface-base)", padding: "10px 14px", borderRadius: 6, fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  <strong style={{ color: "var(--text-primary)", display: "block", marginBottom: 2 }}>Security Notice:</strong>
+                  Changing your password will instantly revoke all existing refresh tokens and require re-authentication across all devices.
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 6 }}>
                   <button
                     type="submit"
-                    className="btn btn-primary btn-md"
-                    disabled={savingPassword}
+                    disabled={savingPassword || passwordSuccess}
+                    className="btn btn-primary"
+                    style={{ padding: "8px 20px", fontSize: 13, fontWeight: 600 }}
                   >
-                    {savingPassword ? <span className="loading-spinner">Updating…</span> : "Update password"}
+                    {savingPassword ? "Updating…" : "Update Password & Revoke Sessions"}
                   </button>
                 </div>
               </form>
+            </div>
 
-              {/* Danger zone */}
-              <div className="profile-danger-zone">
-                <p className="eyebrow" style={{ color: "var(--danger-text)", fontFamily: "var(--font-mono)", fontSize: "12px", textTransform: "uppercase" }}>Danger zone</p>
-                <div className="profile-danger-row">
-                  <div>
-                    <strong>Sign out everywhere</strong>
-                    <p>Clear your session and return to the login page.</p>
+            {/* Security Overview & Active Sessions */}
+            <div className="panel" style={{ padding: 24, background: "var(--surface-card)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+                <span style={{ fontSize: 18 }}>💻</span>
+                <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)" }}>
+                  Account Security Health
+                </h2>
+              </div>
+
+              {loadingSecurity ? (
+                <div style={{ color: "var(--text-muted)", fontSize: 13, padding: 16, textAlign: "center" }}>
+                  Inspecting security ledger…
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16, fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: 10, borderBottom: "1px solid var(--border-subtle)" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Active Auth Sessions</span>
+                    <strong style={{ color: "var(--accent-primary)", fontFamily: "var(--font-mono)" }}>
+                      {securityData?.activeSessions || 1} Active
+                    </strong>
                   </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: 10, borderBottom: "1px solid var(--border-subtle)" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Last Sign-In</span>
+                    <span style={{ color: "var(--text-primary)" }}>{fmtDate(securityData?.lastLogin)}</span>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", paddingBottom: 10, borderBottom: "1px solid var(--border-subtle)" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Account Created</span>
+                    <span style={{ color: "var(--text-primary)" }}>{fmtDate(securityData?.accountCreated)}</span>
+                  </div>
+
+                  <div>
+                    <strong style={{ display: "block", color: "var(--text-primary)", marginBottom: 8, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      Recent Security Events
+                    </strong>
+                    {securityData?.recentEvents && securityData.recentEvents.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {securityData.recentEvents.slice(0, 4).map((evt) => (
+                          <div key={evt.id} style={{ background: "var(--surface-base)", padding: "8px 12px", borderRadius: 6, fontSize: 12, display: "flex", justifyContent: "space-between" }}>
+                            <div>
+                              <strong style={{ color: "var(--text-primary)" }}>{evt.action}</strong>
+                              <span style={{ color: "var(--text-muted)", display: "block", fontSize: 10 }}>IP: {evt.ipAddress || "127.0.0.1"}</span>
+                            </div>
+                            <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{fmtDate(evt.timestamp)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ color: "var(--text-muted)", fontSize: 12 }}>No recent security events recorded.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
+        {/* ── TAB 3: NOTIFICATION PREFERENCES ───────────────────────── */}
+        {tab === "preferences" && (
+          <div style={{ maxWidth: 640 }}>
+            <div className="panel" style={{ padding: 24, background: "var(--surface-card)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>
+                Notification Channels & Subscriptions
+              </h2>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
+                Control which forensic events trigger live alert broadcasts. Critical security alerts cannot be disabled.
+              </p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {[
+                  { key: "caseUpdates", label: "Case Assignment & Status Changes", desc: "When cases you lead or participate in are modified" },
+                  { key: "evidenceUploads", label: "Evidence Ingestion Alerts", desc: "When new evidence is added to your active investigations" },
+                  { key: "custodyTransfers", label: "Chain of Custody Transfers", desc: "When digital custody is transferred to or from your account" },
+                  { key: "securityAlerts", label: "Security & Authentication Alerts (Mandatory)", desc: "Password modifications, role updates, and new logins", locked: true },
+                  { key: "reportReady", label: "Intelligence Dossier & Export Readiness", desc: "When background PDF dossiers or CSV exports finish generating" },
+                  { key: "weeklyDigest", label: "Weekly Forensic Summary Digest", desc: "Weekly email summary of closed cases and audit checkpoints" },
+                ].map((item) => (
+                  <label key={item.key} style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: item.locked ? "not-allowed" : "pointer" }}>
+                    <input
+                      type="checkbox"
+                      disabled={item.locked}
+                      checked={item.locked ? true : prefs[item.key as keyof NotificationPrefs]}
+                      onChange={(e) => setPrefs({ ...prefs, [item.key]: e.target.checked })}
+                      style={{ width: 16, height: 16, accentColor: "var(--accent-primary)", marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: item.locked ? "var(--text-muted)" : "var(--text-primary)" }}>
+                        {item.label}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{item.desc}</div>
+                    </div>
+                  </label>
+                ))}
+
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 12 }}>
                   <button
-                    className="btn btn-danger btn-md"
-                    onClick={signOut}
+                    onClick={handlePrefsSave}
+                    disabled={savingPrefs}
+                    className="btn btn-primary"
+                    style={{ padding: "8px 20px", fontSize: 13, fontWeight: 600 }}
                   >
-                    Sign out
+                    {savingPrefs ? "Saving…" : "Save Preferences"}
                   </button>
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Notification preferences */}
-          {tab === "preferences" && (
-            <div className="profile-card">
-              <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Notification preferences</h2>
-              <p className="profile-card-desc">
-                Choose which notifications you want to receive. Preferences are saved to your account.
-              </p>
-              <div className="pref-list">
-                {(
-                  [
-                    { key: "evidenceUploads",  label: "Evidence Uploads",    desc: "Notify me when new evidence is registered or attached to my cases." },
-                    { key: "caseUpdates",      label: "Case Updates",        desc: "Notify me when case status, priority, or details are updated." },
-                    { key: "custodyTransfers", label: "Custody Transfers",   desc: "Notify me when chain-of-custody transfer events are assigned to me." },
-                    { key: "securityAlerts",   label: "Security Alerts",     desc: "Critical integrity mismatches and security events (Always active).", locked: true },
-                    { key: "auditActivity",    label: "Audit Ledger Export", desc: "Notify me when asynchronous audit logs or compliance data is generated." },
-                    { key: "reportReady",      label: "Judicial Reports",    desc: "Notify me when official case intelligence dossiers are compiled." },
-                    { key: "weeklyDigest",     label: "Weekly Digest",       desc: "A periodic summary of case activity and evidence statistics." },
-                  ] as const
-                ).map((p) => (
-                  <label key={p.key} className="pref-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: "1px solid var(--border-default)" }}>
-                    <div>
-                      <p className="pref-title" style={{ fontWeight: 700, margin: "0 0 2px", fontSize: "13px", color: "var(--text-primary)" }}>{p.label}</p>
-                      <p className="pref-desc" style={{ margin: 0, fontSize: "12px", color: "var(--text-secondary)" }}>{p.desc}</p>
-                    </div>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(prefs[p.key])}
-                      disabled={"locked" in p && p.locked}
-                      onChange={(e) => setPrefs({ ...prefs, [p.key]: e.target.checked })}
-                      aria-label={p.label}
-                      style={{ width: "16px", height: "16px", cursor: "locked" in p && p.locked ? "not-allowed" : "pointer" }}
-                    />
-                  </label>
-                ))}
-              </div>
-              <div className="profile-form-actions">
-                <button
-                  className="btn btn-primary btn-md"
-                  onClick={handlePrefsSave}
-                  disabled={savingPrefs}
-                >
-                  {savingPrefs ? <span className="loading-spinner">Saving…</span> : "Save preferences"}
-                </button>
-              </div>
-            </div>
-          )}
+        {/* ── TAB 4: AUDIT TRAIL ────────────────────────────────────── */}
+        {tab === "activity" && (
+          <div className="panel" style={{ padding: 24, background: "var(--surface-card)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>
+              Personal Operational Audit Log
+            </h2>
 
-          {/* Activity */}
-          {tab === "activity" && (
-            <div className="profile-card">
-              <h2 style={{ color: "var(--text-primary)", fontSize: "18px", marginBottom: "16px" }}>Activity history</h2>
-              <p className="profile-card-desc">
-                All actions performed under your account, most recent first.
-              </p>
-              {loadingActivity ? (
-                <p className="cases-loading">Loading activity…</p>
-              ) : activity.length === 0 ? (
-                <div className="ev-empty-state">
-                  <strong>No activity recorded yet.</strong>
-                </div>
-              ) : (
-                <ol className="activity-history-list" aria-label="Activity history">
-                  {activity.map((a) => (
-                    <li key={a.id} className="activity-history-item">
-                      <div>
-                        <p className="activity-history-action">{fmtAction(a.action)}</p>
-                        <p className="activity-history-time">{fmtDate(a.timestamp)}</p>
-                      </div>
-                      {a.ipAddress && (
-                        <code className="activity-history-ip">{a.ipAddress}</code>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </div>
-          )}
-        </section>
+            {loadingActivity ? (
+              <div style={{ padding: 32, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                Loading operator audit trail…
+              </div>
+            ) : activity.length === 0 ? (
+              <div style={{ padding: 32, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                No audit activity logged for this account.
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, textAlign: "left" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border-subtle)", color: "var(--text-muted)" }}>
+                      <th style={{ padding: "10px 12px" }}>Action</th>
+                      <th style={{ padding: "10px 12px" }}>Target</th>
+                      <th style={{ padding: "10px 12px" }}>IP Address</th>
+                      <th style={{ padding: "10px 12px" }}>Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activity.map((act) => (
+                      <tr key={act.id} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+                        <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--text-primary)" }}>{act.action}</td>
+                        <td style={{ padding: "10px 12px", color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontSize: 12 }}>
+                          {act.resourceType}:{act.resourceId?.slice(0, 8)}…
+                        </td>
+                        <td style={{ padding: "10px 12px", color: "var(--text-muted)", fontSize: 12 }}>{act.ipAddress || "127.0.0.1"}</td>
+                        <td style={{ padding: "10px 12px", color: "var(--text-muted)", fontSize: 12 }}>{fmtDate(act.timestamp)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
-    </div>
-</WorkspaceShell>
+    </WorkspaceShell>
   );
 }

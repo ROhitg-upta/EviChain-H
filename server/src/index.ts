@@ -13,7 +13,26 @@ import reportsRoutes from "./routes/reports.routes";
 import searchRoutes from "./routes/search.routes";
 import usersRoutes from "./routes/users.routes";
 import notificationsRoutes from "./routes/notifications.routes";
+import adminRoutes from "./routes/admin.routes";
+import profileRoutes from "./routes/profile.routes";
 import { securityHeaders, createRateLimiter } from "./middleware";
+
+// ═══════════════════════════════════════════════════════════════════
+// Global Process Safety Nets — Prevent Silent Process Crashes
+// ═══════════════════════════════════════════════════════════════════
+process.on("uncaughtException", (err: Error) => {
+  console.error("[FATAL] Uncaught Exception intercepted:", err.message || err);
+  if (err.stack) {
+    console.error(err.stack);
+  }
+});
+
+process.on("unhandledRejection", (reason: unknown) => {
+  console.error("[FATAL] Unhandled Rejection intercepted:", reason instanceof Error ? reason.message : reason);
+  if (reason instanceof Error && reason.stack) {
+    console.error(reason.stack);
+  }
+});
 
 const app = express();
 
@@ -92,6 +111,8 @@ app.use("/reports",       reportsRoutes);
 app.use("/search",        searchRoutes);
 app.use("/users",         usersRoutes);
 app.use("/notifications", notificationsRoutes);
+app.use("/admin",         adminRoutes);
+app.use("/profile",       profileRoutes);
 
 // Structured 404 fallback for unmatched API routes
 app.use((_req: Request, res: Response) => {
@@ -121,20 +142,53 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 const port = Number(process.env.PORT) || 4000;
 
 let server: import("http").Server | undefined;
+let keepAliveTimer: NodeJS.Timeout | undefined;
 
-if (process.env.NODE_ENV !== "test") {
+const isRunningTest =
+  process.env.NODE_ENV === "test" ||
+  process.argv.some((arg) => arg.includes("test"));
+
+if (!isRunningTest) {
+  // Start server listening
   server = app.listen(port, () => {
     console.log("==================================================");
     console.log("EviChain API Booted Successfully");
     console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
     console.log(`Port: ${port}`);
     console.log(`Health Check: http://localhost:${port}/health`);
-    console.log("Routes: /auth, /cases, /evidence, /audit, /public, /reports, /search, /users, /notifications");
+    console.log("Routes: /auth, /cases, /evidence, /audit, /public, /reports, /search, /users, /notifications, /admin, /profile");
     console.log("==================================================");
   });
 
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`[FATAL] Port ${port} is already in use by another process. Please terminate stale processes.`);
+    } else {
+      console.error("[FATAL] HTTP server error:", err);
+    }
+  });
+
+  // ═════════════════════════════════════════════════════════════════
+  // Neon PostgreSQL Keep-Alive Pulse (Every 3.5 minutes)
+  // Prevents idle cold-start disconnects during active dev sessions
+  // ═════════════════════════════════════════════════════════════════
+  keepAliveTimer = setInterval(async () => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+    } catch {
+      try {
+        await prisma.$connect();
+        await prisma.$queryRaw`SELECT 1`;
+      } catch {
+        // Silently log; do not crash
+      }
+    }
+  }, 210000);
+
   const shutdown = async (signal: string) => {
     console.log(`\n[EviChain Server] Received ${signal}. Shutting down gracefully...`);
+    if (keepAliveTimer) clearInterval(keepAliveTimer);
+
     if (server) {
       server.close(async () => {
         try {

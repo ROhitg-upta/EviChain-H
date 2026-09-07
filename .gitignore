@@ -41,3 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 server/node_modules/
+server/dist/
+server/storage/uploads/
+.pm2/
+*.log

@@ -27,6 +27,8 @@ model User {
   passwordHash String
   name         String
   role         UserRole
+  isActive     Boolean  @default(true)
+  lastLogin    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -47,6 +49,7 @@ model User {
   sessions             Session[]
 
   @@index([role])
+  @@index([isActive])
 }
 
 model Session {
@@ -242,5 +245,12 @@ model SearchPreset {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+model SystemSetting {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
 }
 

@@ -96,11 +96,21 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
+    if (!user.isActive) {
+      return res.status(401).json({ error: "Account has been deactivated. Please contact an administrator." });
+    }
+
     const valid = await verifyPassword(password, user.passwordHash);
 
     if (!valid) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
+
+    // Update lastLogin timestamp
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    });
 
     const accessToken  = signAccessToken(user.id, user.role);
     const refreshToken = signRefreshToken(user.id);
@@ -120,7 +130,7 @@ router.post("/login", async (req, res) => {
     });
 
     return res.json({
-      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role, isActive: user.isActive },
       accessToken,
       refreshToken,
     });
@@ -151,12 +161,12 @@ router.post("/refresh", async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, email: true, name: true, role: true },
+      select: { id: true, email: true, name: true, role: true, isActive: true },
     });
 
-    if (!user) {
+    if (!user || !user.isActive) {
       clearRefreshCookie(res);
-      return res.status(401).json({ error: "User no longer exists" });
+      return res.status(401).json({ error: user ? "Account has been deactivated" : "User no longer exists" });
     }
 
     // Token rotation: Issue NEW access token and NEW refresh token
