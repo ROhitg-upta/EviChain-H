@@ -479,12 +479,16 @@ export function uploadEvidence(
   token: string,
   formData: FormData,
   onProgress?: (pct: number) => void,
+  idempotencyKey?: string,
 ): Promise<UploadEvidenceResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
 
     xhr.open("POST", `${API_URL}/evidence`);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    if (idempotencyKey) {
+      xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
+    }
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
@@ -512,7 +516,7 @@ export function uploadEvidence(
       }
 
       if (xhr.status >= 400) {
-        reject(new Error((data.error as string) || "Upload failed"));
+        reject(new Error((data.error as string) || (data.message as string) || "Upload failed"));
         return;
       }
 
@@ -521,7 +525,7 @@ export function uploadEvidence(
 
     xhr.onerror = () =>
       reject(
-        new Error("Cannot reach the server â€” is the backend running on port 4000?"),
+        new Error("Cannot reach the server — is the backend running on port 4000?"),
       );
 
     xhr.send(formData);
@@ -564,6 +568,7 @@ export async function uploadCaseEvidence(
     name?: string;
   },
   onProgress?: (pct: number) => void,
+  idempotencyKey?: string,
 ): Promise<SafeEvidenceResponse> {
   const formData = new FormData();
   formData.append("file", file);
@@ -576,6 +581,9 @@ export async function uploadCaseEvidence(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_URL}/cases/${caseId}/evidence`);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    if (idempotencyKey) {
+      xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
+    }
 
     if (onProgress && xhr.upload) {
       xhr.upload.onprogress = (e) => {
@@ -1197,16 +1205,47 @@ export async function updateNotificationPreferences(
   return safeJson(res);
 }
 
-// ─── Case comments ────────────────────────────────────────────────────────────
+// ─── Case comments & Collaboration ───────────────────────────────────────────
 
 export type CaseComment = {
   id: string;
+  caseId: string;
   content: string;
+  parentId?: string | null;
   createdAt: string;
   updatedAt: string | null;
-  user: { id: string; name: string; email: string };
+  editedAt?: string | null;
+  deletedAt?: string | null;
+  user: { id: string; name: string; email: string; role?: string };
   mentions: { userId: string; userName: string }[];
   replies: CaseComment[];
+};
+
+export type CaseMentionCandidate = {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+};
+
+export type CaseActivityItem = {
+  id: string;
+  type: "comment" | "annotation" | "custody" | "upload" | "audit";
+  title: string;
+  description: string;
+  timestamp: string;
+  actor: { id?: string; name: string; role?: string } | null;
+  entityId: string;
+  entityType: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type CaseActivityResponse = {
+  items: CaseActivityItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 };
 
 export async function getCaseComments(token: string, caseId: string): Promise<CaseComment[]> {
@@ -1220,7 +1259,7 @@ export async function getCaseComments(token: string, caseId: string): Promise<Ca
 export async function createCaseComment(
   token: string,
   caseId: string,
-  data: { content: string; mentions: { userId: string; userName: string }[]; parentId: string | null },
+  data: { content: string; mentions?: { userId: string; userName?: string }[] | string[]; parentId?: string | null; parentCommentId?: string | null },
 ): Promise<CaseComment> {
   const res = await apiFetch(`${API_URL}/cases/${caseId}/comments`, {
     method: "POST",
@@ -1231,16 +1270,79 @@ export async function createCaseComment(
   return safeJson<CaseComment>(res);
 }
 
+export async function updateCaseComment(
+  token: string,
+  caseId: string,
+  commentId: string,
+  data: { content: string; reason?: string },
+): Promise<CaseComment> {
+  const res = await apiFetch(`${API_URL}/cases/${caseId}/comments/${commentId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) { const e = await safeJson<{ error: string }>(res); throw new Error(e.error || "Failed"); }
+  return safeJson<CaseComment>(res);
+}
+
+export async function deleteCaseComment(
+  token: string,
+  caseId: string,
+  commentId: string,
+): Promise<{ success: boolean; message: string; id: string }> {
+  const res = await apiFetch(`${API_URL}/cases/${caseId}/comments/${commentId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) { const e = await safeJson<{ error: string }>(res); throw new Error(e.error || "Failed"); }
+  return safeJson(res);
+}
+
+export async function getCaseMentionCandidates(
+  token: string,
+  caseId: string,
+): Promise<CaseMentionCandidate[]> {
+  const res = await apiFetch(`${API_URL}/cases/${caseId}/mention-candidates`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) { const e = await safeJson<{ error: string }>(res); throw new Error(e.error || "Failed"); }
+  return safeJson<CaseMentionCandidate[]>(res);
+}
+
+export async function getCaseActivity(
+  token: string,
+  caseId: string,
+  params?: { type?: string; page?: number; pageSize?: number },
+): Promise<CaseActivityResponse> {
+  const q = new URLSearchParams();
+  if (params?.type) q.set("type", params.type);
+  if (params?.page) q.set("page", String(params.page));
+  if (params?.pageSize) q.set("pageSize", String(params.pageSize));
+
+  const qs = q.toString() ? `?${q.toString()}` : "";
+  const res = await apiFetch(`${API_URL}/cases/${caseId}/activity${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) { const e = await safeJson<{ error: string }>(res); throw new Error(e.error || "Failed"); }
+  return safeJson<CaseActivityResponse>(res);
+}
+
 // ─── Evidence Annotations ─────────────────────────────────────────────────────
 
 export type EvidenceAnnotation = {
   id: string;
+  evidenceId?: string;
+  userId?: string;
   type: string;
-  points: { x: number; y: number }[];
+  points?: { x: number; y: number }[];
+  coordinates?: { x: number; y: number; width?: number; height?: number } | { x: number; y: number }[] | null;
+  pageNumber?: number | null;
   text?: string | null;
+  note?: string | null;
   color: string;
   createdAt: string;
-  user: { name: string };
+  editedAt?: string | null;
+  user: { id?: string; name: string; role?: string; email?: string };
 };
 
 export async function getEvidenceAnnotations(
@@ -1254,10 +1356,69 @@ export async function getEvidenceAnnotations(
   return safeJson<EvidenceAnnotation[]>(res);
 }
 
+export async function createEvidenceAnnotation(
+  token: string,
+  evidenceId: string,
+  data: {
+    type: string;
+    coordinates?: unknown;
+    points?: unknown;
+    pageNumber?: number;
+    text?: string;
+    note?: string;
+    color?: string;
+  },
+): Promise<EvidenceAnnotation> {
+  const res = await apiFetch(`${API_URL}/evidence/${evidenceId}/annotations`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) { const e = await safeJson<{ error: string }>(res); throw new Error(e.error || "Failed"); }
+  return safeJson<EvidenceAnnotation>(res);
+}
+
+export async function updateEvidenceAnnotation(
+  token: string,
+  evidenceId: string,
+  annotationId: string,
+  data: {
+    type?: string;
+    coordinates?: unknown;
+    points?: unknown;
+    pageNumber?: number;
+    text?: string;
+    note?: string;
+    color?: string;
+    reason?: string;
+  },
+): Promise<EvidenceAnnotation> {
+  const res = await apiFetch(`${API_URL}/evidence/${evidenceId}/annotations/${annotationId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) { const e = await safeJson<{ error: string }>(res); throw new Error(e.error || "Failed"); }
+  return safeJson<EvidenceAnnotation>(res);
+}
+
+export async function deleteEvidenceAnnotation(
+  token: string,
+  evidenceId: string,
+  annotationId: string,
+): Promise<{ success: boolean; message: string; id: string }> {
+  const res = await apiFetch(`${API_URL}/evidence/${evidenceId}/annotations/${annotationId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) { const e = await safeJson<{ error: string }>(res); throw new Error(e.error || "Failed"); }
+  return safeJson(res);
+}
+
 export async function saveEvidenceAnnotations(
   token: string,
   evidenceId: string,
-  annotations: Array<{ type: string; points: { x: number; y: number }[]; text?: string; color: string }>,
+  annotations: Array<{ type: string; points?: { x: number; y: number }[]; coordinates?: unknown; text?: string; note?: string; color: string; pageNumber?: number }>,
 ): Promise<{ count: number }> {
   const res = await apiFetch(`${API_URL}/evidence/${evidenceId}/annotations`, {
     method: "POST",

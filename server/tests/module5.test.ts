@@ -454,16 +454,19 @@ async function runModule5Tests() {
   });
 
   // Cleanup
-  testServer.close();
-  await disconnectDb();
+  try {
+    if (typeof (testServer as any).closeAllConnections === "function") {
+      (testServer as any).closeAllConnections();
+    }
+    testServer.close();
+    await disconnectDb();
+  } catch {}
 
   console.log(`\n========================================`);
   console.log(`MODULE 5 TESTS SUMMARY: ${passed} PASSED, ${failed} FAILED`);
   console.log(`========================================\n`);
 
-  if (failed > 0) {
-    process.exit(1);
-  }
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 runModule5Tests().catch((err) => {

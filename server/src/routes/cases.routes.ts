@@ -338,6 +338,10 @@ router.post(
         return res.status(400).json({ code: "FILE_REQUIRED", error: "No file payload provided." });
       }
 
+      const idempotencyKey =
+        (req.headers["idempotency-key"] as string) ||
+        (typeof req.body.idempotencyKey === "string" ? req.body.idempotencyKey : undefined);
+
       const evidence = await processEvidenceUpload({
         file: req.file,
         caseId,
@@ -348,6 +352,7 @@ router.post(
         description: typeof req.body.description === "string" ? req.body.description : undefined,
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"],
+        idempotencyKey,
       });
 
       return res.status(201).json(evidence);
@@ -400,20 +405,120 @@ router.post(
   },
 );
 
+// ── Case Access & Mention Validation Helpers ──────────────────────
+async function getAuthorizedCase(caseId: string, userId?: string, userRole?: string) {
+  const caseRecord = await prisma.case.findUnique({
+    where: { id: caseId },
+    include: {
+      lead: { select: { id: true, name: true, role: true, email: true } },
+      evidence: { select: { id: true, name: true, collectedById: true, currentCustodianId: true } },
+    },
+  });
+
+  if (!caseRecord) {
+    return { errorStatus: 404, errorMessage: "Case not found", caseRecord: null };
+  }
+
+  if (!userId || !userRole) {
+    return { errorStatus: 401, errorMessage: "Unauthorized", caseRecord: null };
+  }
+
+  if (userRole === "ADMINISTRATOR" || userRole === "AUDITOR") {
+    return { errorStatus: 0, errorMessage: "", caseRecord };
+  }
+
+  if (userRole === "INVESTIGATOR") {
+    if (caseRecord.leadUserId === userId) {
+      return { errorStatus: 0, errorMessage: "", caseRecord };
+    }
+    const holdsEvidence = caseRecord.evidence.some(
+      (e) => e.collectedById === userId || e.currentCustodianId === userId,
+    );
+    if (holdsEvidence) {
+      return { errorStatus: 0, errorMessage: "", caseRecord };
+    }
+    return { errorStatus: 403, errorMessage: "You are not authorized to access this case", caseRecord: null };
+  }
+
+  if (userRole === "CUSTODIAN") {
+    const holdsEvidence = caseRecord.evidence.some(
+      (e) => e.collectedById === userId || e.currentCustodianId === userId,
+    );
+    if (holdsEvidence) {
+      return { errorStatus: 0, errorMessage: "", caseRecord };
+    }
+  }
+
+  return { errorStatus: 403, errorMessage: "Insufficient permissions for this case", caseRecord: null };
+}
+
+function userHasCaseAccess(
+  user: { id: string; role: string; isActive?: boolean },
+  caseRecord: { leadUserId: string; evidence: { collectedById: string; currentCustodianId: string | null }[] },
+): boolean {
+  if (user.isActive === false) return false;
+  if (user.role === "ADMINISTRATOR" || user.role === "AUDITOR") return true;
+  if (user.role === "INVESTIGATOR") {
+    if (caseRecord.leadUserId === user.id) return true;
+    return caseRecord.evidence.some(
+      (e) => e.collectedById === user.id || e.currentCustodianId === user.id,
+    );
+  }
+  if (user.role === "CUSTODIAN") {
+    return caseRecord.evidence.some(
+      (e) => e.collectedById === user.id || e.currentCustodianId === user.id,
+    );
+  }
+  return false;
+}
+
+// ── GET /cases/:id/mention-candidates ─────────────────────────────
+router.get("/:id/mention-candidates", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const caseId = req.params["id"] as string;
+    const authCheck = await getAuthorizedCase(caseId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.caseRecord) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
+
+    const caseRecord = authCheck.caseRecord;
+
+    // Fetch active users in system
+    const activeUsers = await prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, role: true, email: true, isActive: true },
+      orderBy: { name: "asc" },
+    });
+
+    // Filter to only those with case access
+    const candidates = activeUsers.filter((u) => userHasCaseAccess(u, caseRecord));
+
+    return res.json(candidates.map((c) => ({ id: c.id, name: c.name, role: c.role, email: c.email })));
+  } catch (error) {
+    console.error("Mention candidates error:", error);
+    return res.status(500).json({ error: "Failed to fetch mention candidates" });
+  }
+});
+
 // ── GET /cases/:id/comments ───────────────────────────────────────
 router.get("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
   try {
     const caseId = req.params["id"] as string;
+    const authCheck = await getAuthorizedCase(caseId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.caseRecord) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
 
     const comments = await prisma.caseComment.findMany({
-      where: { caseId, parentId: null },
+      where: { caseId, parentId: null, deletedAt: null },
       include: {
-        user:     { select: { id: true, name: true, email: true } },
-        mentions: { include: { mentionedUser: { select: { id: true, name: true } } } },
+        user: { select: { id: true, name: true, email: true, role: true } },
+        mentions: { include: { mentionedUser: { select: { id: true, name: true, role: true } } } },
         replies: {
+          where: { deletedAt: null },
           include: {
-            user:     { select: { id: true, name: true, email: true } },
-            mentions: { include: { mentionedUser: { select: { id: true, name: true } } } },
+            user: { select: { id: true, name: true, email: true, role: true } },
+            mentions: { include: { mentionedUser: { select: { id: true, name: true, role: true } } } },
           },
           orderBy: { createdAt: "asc" },
         },
@@ -428,10 +533,10 @@ router.get("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
     const shaped = comments.map((c) => ({
       ...c,
       mentions: shapeMentions(c.mentions),
-      replies:  c.replies.map((r) => ({
+      replies: c.replies.map((r) => ({
         ...r,
         mentions: shapeMentions(r.mentions),
-        replies:  [],
+        replies: [],
       })),
     }));
 
@@ -445,69 +550,473 @@ router.get("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
 // ── POST /cases/:id/comments ──────────────────────────────────────
 router.post("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
   try {
-    const { content, mentions, parentId } = req.body as {
-      content:  string;
-      mentions: { userId: string; userName: string }[];
-      parentId: string | null;
-    };
+    const caseId = req.params["id"] as string;
 
-    if (!content || typeof content !== "string") {
+    if (req.userRole === "AUDITOR") {
+      return res.status(403).json({ error: "Auditors have read-only access and cannot post comments" });
+    }
+
+    const authCheck = await getAuthorizedCase(caseId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.caseRecord) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
+
+    const caseRecord = authCheck.caseRecord;
+
+    const bodyContent = req.body.content ?? req.body.body;
+    const parentId = (req.body.parentId ?? req.body.parentCommentId ?? null) as string | null;
+    const clientMentions = req.body.mentions;
+
+    if (!bodyContent || typeof bodyContent !== "string" || !bodyContent.trim()) {
       return res.status(400).json({ error: "content is required" });
     }
 
-    const comment = await prisma.caseComment.create({
-      data: {
-        caseId:   req.params["id"] as string,
-        userId:   req.userId!,
-        content,
-        parentId: parentId ?? null,
-      },
-      include: {
-        user:     { select: { id: true, name: true, email: true } },
-        mentions: true,
-      },
-    });
+    const trimmedContent = bodyContent.trim();
 
-    if (Array.isArray(mentions)) {
-      for (const m of mentions) {
-        const mentioned = await prisma.user.findFirst({
-          where: { name: { contains: m.userName, mode: "insensitive" } },
-        });
-        if (mentioned) {
-          await prisma.commentMention.create({
-            data: { commentId: comment.id, userId: mentioned.id },
-          });
+    // Verify parent comment exists if replying
+    if (parentId) {
+      const parentComment = await prisma.caseComment.findFirst({
+        where: { id: parentId, caseId, deletedAt: null },
+      });
+      if (!parentComment) {
+        return res.status(404).json({ error: "Parent comment not found" });
+      }
+    }
 
-          await notificationService.emitNotification(mentioned.id, {
-            type: "mention",
-            title: "Mentioned in Case",
-            message: `${comment.user.name} mentioned you in a case comment: "${content.slice(0, 50)}${content.length > 50 ? "…" : ""}"`,
-            link: `/cases/${req.params["id"]}`,
+    // Extract potential mentions from text (@name or @[name](id)) or client-supplied mentions
+    const mentionedUserIdsToNotify = new Set<string>();
+
+    // 1. Process client supplied mentions if any
+    if (Array.isArray(clientMentions)) {
+      for (const m of clientMentions) {
+        const uId = typeof m === "string" ? m : m?.userId;
+        const uName = typeof m === "object" ? m?.userName : undefined;
+        if (uId) {
+          const user = await prisma.user.findUnique({
+            where: { id: uId },
+            select: { id: true, role: true, isActive: true },
           });
+          if (user && userHasCaseAccess(user, caseRecord) && user.id !== req.userId) {
+            mentionedUserIdsToNotify.add(user.id);
+          }
+        } else if (uName) {
+          const user = await prisma.user.findFirst({
+            where: { name: { contains: uName, mode: "insensitive" }, isActive: true },
+            select: { id: true, role: true, isActive: true },
+          });
+          if (user && userHasCaseAccess(user, caseRecord) && user.id !== req.userId) {
+            mentionedUserIdsToNotify.add(user.id);
+          }
         }
       }
     }
 
-    await prisma.auditLog.create({
-      data: {
-        actorUserId:  req.userId!,
-        action:       "case.comment",
-        resourceType: "case",
-        resourceId:   req.params["id"] as string,
-        detailJson:   { preview: content.slice(0, 80) },
-        ipAddress:    req.ip,
-        userAgent:    req.headers["user-agent"],
-      },
+    // 2. Parse @[Name](UUID) or @Name patterns from comment text
+    const bracketMatches = [...trimmedContent.matchAll(/@\[([^\]]+)\]\(([^)]+)\)/g)];
+    for (const match of bracketMatches) {
+      const candidateId = match[2];
+      const user = await prisma.user.findUnique({
+        where: { id: candidateId },
+        select: { id: true, role: true, isActive: true },
+      });
+      if (user && userHasCaseAccess(user, caseRecord) && user.id !== req.userId) {
+        mentionedUserIdsToNotify.add(user.id);
+      }
+    }
+
+    const rawNameMatches = [...trimmedContent.matchAll(/@([a-zA-Z0-9_\-.\s]{2,30})/g)];
+    for (const match of rawNameMatches) {
+      const nameCandidate = match[1]?.trim();
+      if (nameCandidate && nameCandidate.length >= 2) {
+        const user = await prisma.user.findFirst({
+          where: { name: { equals: nameCandidate, mode: "insensitive" }, isActive: true },
+          select: { id: true, role: true, isActive: true },
+        });
+        if (user && userHasCaseAccess(user, caseRecord) && user.id !== req.userId) {
+          mentionedUserIdsToNotify.add(user.id);
+        }
+      }
+    }
+
+    // Execute atomic creation of comment, mentions, notifications, and audit log
+    const comment = await prisma.$transaction(async (tx) => {
+      const newComment = await tx.caseComment.create({
+        data: {
+          caseId,
+          userId: req.userId!,
+          content: trimmedContent,
+          parentId,
+        },
+        include: {
+          user: { select: { id: true, name: true, email: true, role: true } },
+        },
+      });
+
+      for (const targetUserId of mentionedUserIdsToNotify) {
+        await tx.commentMention.create({
+          data: {
+            commentId: newComment.id,
+            userId: targetUserId,
+          },
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorUserId: req.userId!,
+          action: "case.comment.create",
+          resourceType: "case",
+          resourceId: caseId,
+          detailJson: {
+            commentId: newComment.id,
+            parentId,
+            preview: trimmedContent.slice(0, 100),
+            mentionCount: mentionedUserIdsToNotify.size,
+          },
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+        },
+      });
+
+      return newComment;
     });
+
+    // Dispatch notifications to verified mentioned users
+    for (const targetUserId of mentionedUserIdsToNotify) {
+      await notificationService.createNotification({
+        userId: targetUserId,
+        type: "mention",
+        title: "Mentioned in Case",
+        message: `${comment.user.name} mentioned you in case "${caseRecord.title}": "${trimmedContent.slice(0, 60)}${trimmedContent.length > 60 ? "…" : ""}"`,
+        link: `/cases/${caseId}`,
+        entityType: "CASE",
+        entityId: caseId,
+        metadataJson: { caseId, commentId: comment.id },
+        dedupeKey: `MENTION:${comment.id}:${targetUserId}`,
+      });
+    }
 
     return res.status(201).json({
       ...comment,
-      mentions: [],
-      replies:  [],
+      mentions: Array.from(mentionedUserIdsToNotify).map((uId) => ({ userId: uId, userName: "" })),
+      replies: [],
     });
   } catch (error) {
     console.error("Comment create error:", error);
     return res.status(500).json({ error: "Failed to create comment" });
+  }
+});
+
+// ── PATCH /cases/:id/comments/:commentId ──────────────────────────
+router.patch("/:id/comments/:commentId", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const caseId = req.params["id"] as string;
+    const commentId = req.params["commentId"] as string;
+
+    if (req.userRole === "AUDITOR") {
+      return res.status(403).json({ error: "Auditors have read-only access and cannot edit comments" });
+    }
+
+    const authCheck = await getAuthorizedCase(caseId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.caseRecord) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
+
+    const existing = await prisma.caseComment.findFirst({
+      where: { id: commentId, caseId, deletedAt: null },
+      include: { user: { select: { id: true, name: true, role: true } } },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Comment not found" });
+    }
+
+    const bodyContent = req.body.content ?? req.body.body;
+    if (!bodyContent || typeof bodyContent !== "string" || !bodyContent.trim()) {
+      return res.status(400).json({ error: "content is required" });
+    }
+
+    const isAuthor = existing.userId === req.userId;
+    const isAdmin = req.userRole === "ADMINISTRATOR";
+
+    if (!isAuthor && !isAdmin) {
+      return res.status(403).json({ error: "You can only edit your own comments" });
+    }
+
+    const updatedComment = await prisma.caseComment.update({
+      where: { id: commentId },
+      data: {
+        content: bodyContent.trim(),
+        editedAt: new Date(),
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true, role: true } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: req.userId!,
+        action: isAdmin && !isAuthor ? "case.comment.moderate" : "case.comment.edit",
+        resourceType: "case",
+        resourceId: caseId,
+        detailJson: {
+          commentId,
+          originalAuthorId: existing.userId,
+          moderated: isAdmin && !isAuthor,
+          reason: typeof req.body.reason === "string" ? req.body.reason : undefined,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+      },
+    });
+
+    return res.json(updatedComment);
+  } catch (error) {
+    console.error("Comment edit error:", error);
+    return res.status(500).json({ error: "Failed to update comment" });
+  }
+});
+
+// ── DELETE /cases/:id/comments/:commentId ─────────────────────────
+router.delete("/:id/comments/:commentId", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const caseId = req.params["id"] as string;
+    const commentId = req.params["commentId"] as string;
+
+    if (req.userRole === "AUDITOR") {
+      return res.status(403).json({ error: "Auditors have read-only access and cannot delete comments" });
+    }
+
+    const authCheck = await getAuthorizedCase(caseId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.caseRecord) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
+
+    const existing = await prisma.caseComment.findFirst({
+      where: { id: commentId, caseId, deletedAt: null },
+      include: { user: { select: { id: true, name: true, role: true } } },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Comment not found" });
+    }
+
+    const isAuthor = existing.userId === req.userId;
+    const isAdmin = req.userRole === "ADMINISTRATOR";
+
+    if (!isAuthor && !isAdmin) {
+      return res.status(403).json({ error: "You can only delete your own comments" });
+    }
+
+    await prisma.caseComment.update({
+      where: { id: commentId },
+      data: { deletedAt: new Date() },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: req.userId!,
+        action: isAdmin && !isAuthor ? "case.comment.moderate" : "case.comment.delete",
+        resourceType: "case",
+        resourceId: caseId,
+        detailJson: {
+          commentId,
+          originalAuthorId: existing.userId,
+          action: "soft_delete",
+          moderated: isAdmin && !isAuthor,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+      },
+    });
+
+    return res.json({ success: true, message: "Comment deleted successfully", id: commentId });
+  } catch (error) {
+    console.error("Comment delete error:", error);
+    return res.status(500).json({ error: "Failed to delete comment" });
+  }
+});
+
+// ── GET /cases/:id/activity ───────────────────────────────────────
+router.get("/:id/activity", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const caseId = req.params["id"] as string;
+    const authCheck = await getAuthorizedCase(caseId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.caseRecord) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
+
+    const typeFilter = req.query.type as string | undefined;
+    const page = Math.max(1, parseInt(String(req.query.page || "1"), 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || "20"), 10) || 20));
+
+    interface ActivityItem {
+      id: string;
+      type: "comment" | "annotation" | "custody" | "upload" | "audit";
+      eventType?: "comment" | "annotation" | "custody" | "upload" | "audit";
+      title: string;
+      description: string;
+      timestamp: Date;
+      actor: { id?: string; name: string; role?: string } | null;
+      entityId: string;
+      entityType: string;
+      metadata?: Record<string, unknown>;
+    }
+
+    const activityItems: ActivityItem[] = [];
+
+    // 1. Comments
+    if (!typeFilter || typeFilter === "comment" || typeFilter === "all") {
+      const comments = await prisma.caseComment.findMany({
+        where: { caseId, deletedAt: null },
+        include: { user: { select: { id: true, name: true, role: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+      for (const c of comments) {
+        activityItems.push({
+          id: c.id,
+          type: "comment",
+          eventType: "comment",
+          title: c.parentId ? "Reply added to discussion" : "Comment added to case",
+          description: c.content.slice(0, 140),
+          timestamp: c.createdAt,
+          actor: c.user,
+          entityId: c.id,
+          entityType: "COMMENT",
+          metadata: { parentId: c.parentId, editedAt: c.editedAt },
+        });
+      }
+    }
+
+    // 2. Annotations on evidence in this case
+    if (!typeFilter || typeFilter === "annotation" || typeFilter === "all") {
+      const annotations = await prisma.evidenceAnnotation.findMany({
+        where: { evidence: { caseId }, deletedAt: null },
+        include: {
+          user: { select: { id: true, name: true, role: true } },
+          evidence: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+      for (const a of annotations) {
+        activityItems.push({
+          id: a.id,
+          type: "annotation",
+          eventType: "annotation",
+          title: `Annotation on ${a.evidence.name}`,
+          description: a.note || a.text || `Visual markup (${a.type})`,
+          timestamp: a.createdAt,
+          actor: a.user,
+          entityId: a.id,
+          entityType: "ANNOTATION",
+          metadata: { evidenceId: a.evidenceId, evidenceName: a.evidence.name, type: a.type, pageNumber: a.pageNumber },
+        });
+      }
+    }
+
+    // 3. Custody Events
+    if (!typeFilter || typeFilter === "custody" || typeFilter === "all") {
+      const custodyEvents = await prisma.custodyEvent.findMany({
+        where: { evidence: { caseId } },
+        include: {
+          actor: { select: { id: true, name: true, role: true } },
+          evidence: { select: { id: true, name: true } },
+          fromUser: { select: { name: true } },
+          toUser: { select: { name: true } },
+        },
+        orderBy: { timestamp: "desc" },
+        take: 100,
+      });
+      for (const ce of custodyEvents) {
+        activityItems.push({
+          id: ce.id,
+          type: "custody",
+          eventType: "custody",
+          title: `Custody ${ce.action}: ${ce.evidence.name}`,
+          description: ce.note || `Chain of custody event by ${ce.actor.name}`,
+          timestamp: ce.timestamp,
+          actor: ce.actor,
+          entityId: ce.evidenceId,
+          entityType: "CUSTODY_EVENT",
+          metadata: {
+            action: ce.action,
+            from: ce.fromUser?.name,
+            to: ce.toUser?.name,
+            location: ce.toLocation,
+          },
+        });
+      }
+    }
+
+    // 4. Evidence Uploads
+    if (!typeFilter || typeFilter === "upload" || typeFilter === "all") {
+      const evidenceList = await prisma.evidence.findMany({
+        where: { caseId },
+        include: { collectedBy: { select: { id: true, name: true, role: true } } },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+      for (const e of evidenceList) {
+        activityItems.push({
+          id: e.id,
+          type: "upload",
+          eventType: "upload",
+          title: `Evidence registered: ${e.name}`,
+          description: `Format: ${e.type} · SHA-256: ${e.sha256.slice(0, 16)}…`,
+          timestamp: e.createdAt,
+          actor: e.collectedBy,
+          entityId: e.id,
+          entityType: "EVIDENCE",
+          metadata: { sha256: e.sha256, sizeBytes: e.sizeBytes, status: e.status },
+        });
+      }
+    }
+
+    // 5. Case Audit Events
+    if (!typeFilter || typeFilter === "audit" || typeFilter === "all") {
+      const audits = await prisma.auditLog.findMany({
+        where: { resourceType: "case", resourceId: caseId },
+        include: { actor: { select: { id: true, name: true, role: true } } },
+        orderBy: { timestamp: "desc" },
+        take: 100,
+      });
+      for (const al of audits) {
+        activityItems.push({
+          id: al.id,
+          type: "audit",
+          eventType: "audit",
+          title: `Case Log: ${al.action}`,
+          description: typeof al.detailJson === "object" ? JSON.stringify(al.detailJson) : "",
+          timestamp: al.timestamp,
+          actor: al.actor,
+          entityId: al.resourceId,
+          entityType: "AUDIT_LOG",
+          metadata: { action: al.action },
+        });
+      }
+    }
+
+    // Sort all merged activity items chronologically (latest first)
+    activityItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    const total = activityItems.length;
+    const startIndex = (page - 1) * pageSize;
+    const paginatedItems = activityItems.slice(startIndex, startIndex + pageSize);
+    const totalPages = Math.ceil(total / pageSize) || 1;
+
+    return res.json({
+      items: paginatedItems,
+      total,
+      page,
+      pageSize,
+      totalPages,
+    });
+  } catch (error) {
+    console.error("Case activity feed error:", error);
+    return res.status(500).json({ error: "Failed to fetch case activity feed" });
   }
 });
 

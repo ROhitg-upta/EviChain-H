@@ -187,10 +187,15 @@ model CaseComment {
   parent    CaseComment?  @relation("CommentReplies", fields: [parentId], references: [id])
   replies   CaseComment[] @relation("CommentReplies")
   mentions  CommentMention[]
+  editedAt  DateTime?
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([caseId, createdAt])
+  @@index([userId])
+  @@index([parentId])
+  @@index([deletedAt])
 }
 
 model CommentMention {
@@ -199,19 +204,31 @@ model CommentMention {
   comment       CaseComment @relation(fields: [commentId], references: [id])
   userId        String
   mentionedUser User        @relation("CommentMentions", fields: [userId], references: [id])
+
+  @@index([commentId])
+  @@index([userId])
 }
 
 model EvidenceAnnotation {
-  id         String   @id @default(uuid())
-  evidenceId String
-  evidence   Evidence @relation(fields: [evidenceId], references: [id])
-  userId     String
-  user       User     @relation("AnnotationUser", fields: [userId], references: [id])
-  type       String
-  points     Json
-  text       String?
-  color      String
-  createdAt  DateTime @default(now())
+  id          String    @id @default(uuid())
+  evidenceId  String
+  evidence    Evidence  @relation(fields: [evidenceId], references: [id])
+  userId      String
+  user        User      @relation("AnnotationUser", fields: [userId], references: [id])
+  type        String    // POINT, REGION, PAGE_NOTE, freehand, arrow, highlight, text
+  points      Json?
+  coordinates Json?
+  pageNumber  Int?
+  text        String?
+  note        String?
+  color       String    @default("#22d3ee")
+  editedAt    DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([evidenceId, createdAt])
+  @@index([userId])
+  @@index([deletedAt])
 }
 
 model Notification {

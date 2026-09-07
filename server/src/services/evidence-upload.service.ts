@@ -18,6 +18,7 @@ export interface EvidenceUploadInput {
   description?: string;
   ipAddress?: string;
   userAgent?: string;
+  idempotencyKey?: string;
 }
 
 export interface SafeEvidenceResponse {
@@ -39,7 +40,6 @@ export interface SafeEvidenceResponse {
   };
 }
 
-
 export class UploadError extends Error {
   constructor(
     public readonly code: string,
@@ -52,6 +52,30 @@ export class UploadError extends Error {
 }
 
 /**
+ * In-memory registry for Idempotency Keys.
+ * Guaranteed idempotency replay protection across mobile/field retries.
+ */
+interface IdempotencyRecord {
+  idempotencyKey: string;
+  uploaderId: string;
+  caseId: string | null;
+  response?: SafeEvidenceResponse;
+  status: "PENDING" | "COMPLETED";
+  createdAt: number;
+}
+
+const idempotencyStore = new Map<string, IdempotencyRecord>();
+
+function pruneExpiredIdempotencyKeys() {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000; // 24 hours
+  for (const [key, item] of idempotencyStore.entries()) {
+    if (item.createdAt < cutoff) {
+      idempotencyStore.delete(key);
+    }
+  }
+}
+
+/**
  * Computes lowercase 64-char hexadecimal SHA-256 digest from raw byte buffer
  */
 export function calculateEvidenceHash(buffer: Buffer): string {
@@ -60,15 +84,51 @@ export function calculateEvidenceHash(buffer: Buffer): string {
 
 /**
  * Orchestrates secure evidence upload, server-side hashing, storage persistence,
- * and atomic database transaction with automatic cleanup on failure.
+ * atomic database transaction, and idempotency key deduplication.
  */
 export async function processEvidenceUpload(
   input: EvidenceUploadInput,
 ): Promise<SafeEvidenceResponse> {
-  const { file, caseId, uploaderId, ipAddress, userAgent } = input;
+  const { file, caseId, uploaderId, ipAddress, userAgent, idempotencyKey } = input;
 
   if (!file || !file.buffer) {
     throw new UploadError("FILE_REQUIRED", "No file payload provided.", 400);
+  }
+
+  // 0. Check Idempotency Key
+  const rawKey = typeof idempotencyKey === "string" ? idempotencyKey.trim() : "";
+  if (rawKey) {
+    pruneExpiredIdempotencyKeys();
+    const existing = idempotencyStore.get(rawKey);
+    if (existing) {
+      if (existing.uploaderId !== uploaderId) {
+        throw new UploadError(
+          "IDEMPOTENCY_CONFLICT",
+          "Idempotency key has already been used by another user account.",
+          409,
+        );
+      }
+      const normCaseId = caseId ?? null;
+      const existingCaseId = existing.caseId ?? null;
+      if (normCaseId !== existingCaseId) {
+        throw new UploadError(
+          "IDEMPOTENCY_CONFLICT",
+          "Idempotency key has already been used for a different case target.",
+          409,
+        );
+      }
+      if (existing.status === "COMPLETED" && existing.response) {
+        return existing.response;
+      }
+    } else {
+      idempotencyStore.set(rawKey, {
+        idempotencyKey: rawKey,
+        uploaderId,
+        caseId: caseId ?? null,
+        status: "PENDING",
+        createdAt: Date.now(),
+      });
+    }
   }
 
   // 1. Server-side file validation (size, MIME, disallowed extensions)
@@ -79,6 +139,7 @@ export async function processEvidenceUpload(
   });
 
   if (!validation.valid) {
+    if (rawKey) idempotencyStore.delete(rawKey);
     const isSize = validation.error?.includes("maximum permitted limit");
     const isMime = validation.error?.includes("MIME type");
     const statusCode = isSize ? 413 : isMime ? 415 : 400;
@@ -95,6 +156,7 @@ export async function processEvidenceUpload(
     });
 
     if (!targetCase) {
+      if (rawKey) idempotencyStore.delete(rawKey);
       throw new UploadError("CASE_NOT_FOUND", "The target case was not found.", 404);
     }
   }
@@ -106,6 +168,7 @@ export async function processEvidenceUpload(
   });
 
   if (!uploader) {
+    if (rawKey) idempotencyStore.delete(rawKey);
     throw new UploadError("USER_NOT_FOUND", "Uploader account not found.", 401);
   }
 
@@ -120,6 +183,7 @@ export async function processEvidenceUpload(
   try {
     await storage.upload(storageKey, file.buffer, file.mimetype);
   } catch (storageErr) {
+    if (rawKey) idempotencyStore.delete(rawKey);
     console.error("Storage upload failed:", storageErr);
     throw new UploadError(
       "STORAGE_WRITE_FAILED",
@@ -165,7 +229,6 @@ export async function processEvidenceUpload(
         },
       });
 
-
       // Immutable audit log
       await tx.auditLog.create({
         data: {
@@ -190,6 +253,7 @@ export async function processEvidenceUpload(
 
     createdEvidence = result;
   } catch (dbErr) {
+    if (rawKey) idempotencyStore.delete(rawKey);
     // 7. Cleanup orphaned storage object if DB transaction failed
     console.error("Database transaction failed during upload; executing cleanup on key:", storageKey, dbErr);
     await cleanupStorageKey(storageKey);
@@ -235,8 +299,8 @@ export async function processEvidenceUpload(
     // Non-fatal notification failure
   }
 
-  // 9. Return safe API contract (Never expose internal filesystem paths or private keys)
-  return {
+  // 9. Return safe API contract
+  const safeResponse: SafeEvidenceResponse = {
     id: createdEvidence.id,
     caseId: createdEvidence.caseId,
     name: createdEvidence.name,
@@ -248,11 +312,24 @@ export async function processEvidenceUpload(
     collectedById: createdEvidence.collectedById,
     currentCustodianId: createdEvidence.currentCustodianId,
     createdAt: createdEvidence.createdAt.toISOString(),
-
     uploader: {
       id: uploader.id,
       name: uploader.name,
       role: uploader.role,
     },
   };
+
+  // Register completion in idempotency store
+  if (rawKey) {
+    idempotencyStore.set(rawKey, {
+      idempotencyKey: rawKey,
+      uploaderId,
+      caseId: caseId ?? null,
+      response: safeResponse,
+      status: "COMPLETED",
+      createdAt: Date.now(),
+    });
+  }
+
+  return safeResponse;
 }

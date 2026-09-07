@@ -6,6 +6,8 @@ import {
 import { useAuth } from "../../auth-context";
 import { getCases, uploadEvidence, bulkUploadEvidence, type CaseRecord, type UploadEvidenceResult, type EvidenceRecord } from "@/lib/api";
 import WorkspaceShell from "@/app/components/ui/workspace-shell";
+import SafeHashField from "@/app/components/ui/safe-hash-field";
+import { saveOfflineDraft } from "@/lib/offline-queue";
 
 
 const ACCEPTED_MIME = [
@@ -99,7 +101,39 @@ export default function NewEvidencePage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!file || !accessToken) return;
+    if (!file) return;
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      if (!user) return;
+      setUploading(true);
+      try {
+        await saveOfflineDraft({
+          userId: user.id,
+          idempotencyKey: crypto.randomUUID(),
+          caseId: caseId.trim() || null,
+          name: name.trim() || file.name,
+          type: fileExt(file.name),
+          ownerOrg: ownerOrg || "Digital Forensics",
+          description: description.trim() || null,
+          fileBlob: file,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type || "application/octet-stream",
+          status: "QUEUED",
+          progress: 0,
+        });
+        setError("");
+        alert("Offline Mode: Evidence drafted and queued in local offline vault.");
+        resetForm();
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Failed to save offline draft");
+      } finally {
+        setUploading(false);
+      }
+      return;
+    }
+
+    if (!accessToken) return;
 
     setUploading(true);
     setProgress(0);
@@ -199,9 +233,12 @@ export default function NewEvidencePage() {
             </div>
           </dl>
 
-          <div className="upload-hash-box">
-            <span className="eyebrow">SHA-256 FINGERPRINT</span>
-            <code>{result.sha256}</code>
+          <div style={{ margin: "16px 0" }}>
+            <SafeHashField
+              hash={result.sha256}
+              label="SHA-256 Fingerprint"
+              showBadge={true}
+            />
           </div>
 
           <div className="upload-success-actions">

@@ -13,24 +13,35 @@ const withPWA = require("next-pwa")({
   disable: process.env.NODE_ENV === "development",
   register: true,
   skipWaiting: true,
+  fallbacks: {
+    document: "/offline",
+  },
   runtimeCaching: [
     {
-      urlPattern: /^\/api\/.*/i,
-      handler: "NetworkFirst",
+      // Explicitly reject all authenticated APIs and private data from service worker cache
+      urlPattern: /^https?:\/\/.*\/((api|auth|cases|evidence|audit|reports|notifications|admin|profile|search|public\/verify).*|.*\.(dat|bin|raw|pdf|mp4|zip|tar|gz))$/i,
+      handler: "NetworkOnly",
+    },
+    {
+      // Safe static assets (JS, CSS, static images, fonts)
+      urlPattern: /\.(?:js|css|woff2?|ttf|eot|png|jpg|jpeg|svg|gif|webp|ico)$/i,
+      handler: "StaleWhileRevalidate",
       options: {
-        cacheName: "api-cache",
-        expiration: { maxEntries: 100, maxAgeSeconds: 86400 },
+        cacheName: "static-assets-cache",
+        expiration: { maxEntries: 80, maxAgeSeconds: 7 * 86400 },
       },
     },
     {
-      urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
+      // Next.js static build chunks
+      urlPattern: /^\/_next\/static\/.*/i,
       handler: "CacheFirst",
       options: {
-        cacheName: "image-cache",
-        expiration: { maxEntries: 50, maxAgeSeconds: 604800 },
+        cacheName: "next-static-cache",
+        expiration: { maxEntries: 100, maxAgeSeconds: 30 * 86400 },
       },
     },
   ],
 });
 
 module.exports = withPWA(nextConfig);
+

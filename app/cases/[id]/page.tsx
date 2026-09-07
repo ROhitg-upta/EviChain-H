@@ -12,196 +12,8 @@ import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
 
 
-// ── Comment sub-components ────────────────────────────────────────
-
-function CommentItem({
-  comment,
-  onReply,
-}: {
-  comment: CaseComment;
-  onReply: (parentId: string, content: string) => Promise<void>;
-}) {
-  const { user } = useAuth();
-  const [replying, setReplying] = useState(false);
-  const [replyContent, setReplyContent] = useState("");
-  const [sending, setSending] = useState(false);
-
-  async function handleReplySubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!replyContent.trim()) return;
-    setSending(true);
-    await onReply(comment.id, replyContent);
-    setReplyContent("");
-    setReplying(false);
-    setSending(false);
-  }
-
-  return (
-    <div className="comment-item">
-      <div className="comment-avatar" aria-hidden="true">
-        {comment.user.name.charAt(0).toUpperCase()}
-      </div>
-      <div className="comment-body">
-        <div className="comment-header">
-          <span className="comment-author">{comment.user.name}</span>
-          <time className="comment-time" dateTime={comment.createdAt}>
-            {new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" })
-              .format(new Date(comment.createdAt))}
-          </time>
-        </div>
-        <div className="comment-content">
-          {comment.content.split(/(@[\w\s.-]+)/g).map((part, i) =>
-            part.startsWith("@") ? (
-              <span key={i} className="comment-mention">{part}</span>
-            ) : (
-              <span key={i}>{part}</span>
-            ),
-          )}
-        </div>
-
-        {comment.replies.length > 0 && (
-          <div className="comment-replies">
-            {comment.replies.map((reply) => (
-              <CommentItem key={reply.id} comment={reply} onReply={onReply} />
-            ))}
-          </div>
-        )}
-
-        {user && !replying && (
-          <button className="comment-reply-btn" onClick={() => setReplying(true)}>
-            Reply
-          </button>
-        )}
-
-        {replying && (
-          <form onSubmit={handleReplySubmit} className="comment-reply-form">
-            <textarea
-              value={replyContent}
-              onChange={(e) => setReplyContent(e.target.value)}
-              placeholder="Write a reply… Use @ to mention someone"
-              rows={2}
-              autoFocus
-            />
-            <div className="comment-form-actions">
-              <button type="submit" className="button button-primary small-button" disabled={sending}>
-                {sending ? "Posting…" : "Reply"}
-              </button>
-              <button type="button" className="button button-secondary small-button" onClick={() => setReplying(false)}>
-                Cancel
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CommentsSection({ caseId }: { caseId: string }) {
-  const { user, accessToken } = useAuth();
-  const { toast } = useNotifications();
-  const [comments, setComments] = useState<CaseComment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [newComment, setNewComment] = useState("");
-  const [sending, setSending] = useState(false);
-
-  useEffect(() => {
-    if (!accessToken) return;
-    getCaseComments(accessToken, caseId)
-      .then(setComments)
-      .catch(() => { /* silently ignore — comments are non-critical */ })
-      .finally(() => setLoading(false));
-  }, [accessToken, caseId]);
-
-  async function handleAddComment(e: FormEvent) {
-    e.preventDefault();
-    if (!newComment.trim() || !accessToken) return;
-    setSending(true);
-    try {
-      const c = await createCaseComment(accessToken, caseId, {
-        content: newComment.trim(),
-        mentions: [],
-        parentId: null,
-      });
-      setComments((prev) => [...prev, c]);
-      setNewComment("");
-      toast({ type: "success", title: "Comment added" });
-    } catch (err: unknown) {
-      toast({ type: "error", title: err instanceof Error ? err.message : "Failed to add comment" });
-    } finally {
-      setSending(false);
-    }
-  }
-
-  async function handleReply(parentId: string, content: string) {
-    if (!accessToken) return;
-    try {
-      const reply = await createCaseComment(accessToken, caseId, {
-        content, mentions: [], parentId,
-      });
-      setComments((prev) =>
-        prev.map((c) =>
-          c.id === parentId ? { ...c, replies: [...c.replies, reply] } : c,
-        ),
-      );
-      toast({ type: "success", title: "Reply added" });
-    } catch (err: unknown) {
-      toast({ type: "error", title: err instanceof Error ? err.message : "Failed to reply" });
-    }
-  }
-
-  return (
-    <div className="detail-card" style={{ marginTop: "var(--space-5)", gridColumn: "1 / -1" }}>
-      <p className="eyebrow">DISCUSSION</p>
-      <h2 style={{ margin: "4px 0 var(--space-5)", fontSize: "var(--text-lg)", letterSpacing: "var(--tracking-snug)" }}>
-        Comments
-      </h2>
-
-      {user && (
-        <form onSubmit={handleAddComment} className="comment-form">
-          <div className="comment-form-avatar" aria-hidden="true">
-            {user.name.charAt(0).toUpperCase()}
-          </div>
-          <div className="comment-form-body">
-            <textarea
-              value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
-              placeholder="Add a comment… Use @ to mention team members."
-              rows={3}
-            />
-            <div className="comment-form-footer">
-              <p className="comment-form-hint">Use @name to mention someone.</p>
-              <button
-                type="submit"
-                className="button button-primary small-button"
-                disabled={sending || !newComment.trim()}
-              >
-                {sending ? "Posting…" : "Post comment"}
-              </button>
-            </div>
-          </div>
-        </form>
-      )}
-
-      <div className="comments-list">
-        {loading ? (
-          <p className="ev-muted" style={{ fontSize: "var(--text-sm)", padding: "var(--space-4) 0" }}>
-            Loading comments…
-          </p>
-        ) : comments.length === 0 ? (
-          <div className="ev-empty-state" style={{ padding: "var(--space-8) 0" }}>
-            <strong>No comments yet.</strong>
-            <p>Start the discussion.</p>
-          </div>
-        ) : (
-          comments.map((c) => (
-            <CommentItem key={c.id} comment={c} onReply={handleReply} />
-          ))
-        )}
-      </div>
-    </div>
-  );
-}
+import CaseCommentsSection from "@/app/components/ui/case-comments-section";
+import CaseActivityFeed from "@/app/components/ui/case-activity-feed";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -248,6 +60,7 @@ export default function CaseDetailPage() {
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState("");
   const [updateSuccess, setUpdateSuccess] = useState(false);
+  const [activeTab, setActiveTab] = useState<"overview" | "activity" | "discussion">("overview");
   const [exportingPdf, setExportingPdf] = useState(false);
 
   const loadCase = useCallback(() => {
@@ -500,7 +313,89 @@ export default function CaseDetailPage() {
         </div>
       </div>
 
-      {/* Detail grid */}
+      {/* Forensic Tab Navigation */}
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          borderBottom: "1px solid var(--border-default)",
+          marginBottom: 24,
+          overflowX: "auto",
+        }}
+        role="tablist"
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "overview"}
+          onClick={() => setActiveTab("overview")}
+          style={{
+            padding: "10px 16px",
+            background: "none",
+            border: "none",
+            borderBottom: activeTab === "overview" ? "2px solid var(--brand-500)" : "2px solid transparent",
+            color: activeTab === "overview" ? "var(--text-primary)" : "var(--text-secondary)",
+            fontWeight: activeTab === "overview" ? 700 : 500,
+            fontSize: "var(--text-sm)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>Overview & Evidence</span>
+          <span style={{ fontSize: 11, padding: "1px 6px", borderRadius: 10, background: "rgba(255,255,255,0.06)", color: "var(--text-secondary)" }}>
+            {evidence.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "activity"}
+          onClick={() => setActiveTab("activity")}
+          style={{
+            padding: "10px 16px",
+            background: "none",
+            border: "none",
+            borderBottom: activeTab === "activity" ? "2px solid var(--brand-500)" : "2px solid transparent",
+            color: activeTab === "activity" ? "var(--text-primary)" : "var(--text-secondary)",
+            fontWeight: activeTab === "activity" ? 700 : 500,
+            fontSize: "var(--text-sm)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>Activity Timeline</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "discussion"}
+          onClick={() => setActiveTab("discussion")}
+          style={{
+            padding: "10px 16px",
+            background: "none",
+            border: "none",
+            borderBottom: activeTab === "discussion" ? "2px solid var(--brand-500)" : "2px solid transparent",
+            color: activeTab === "discussion" ? "var(--text-primary)" : "var(--text-secondary)",
+            fontWeight: activeTab === "discussion" ? 700 : 500,
+            fontSize: "var(--text-sm)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>Discussion & Notes</span>
+        </button>
+      </div>
+
+      {/* Tab: Overview & Evidence Grid */}
+      {activeTab === "overview" && (
       <div className="case-grid-layout" style={{ marginBottom: 32 }}>
         {/* Left Column: Metadata & Controls */}
         <div style={{ display: "grid", gap: 18 }}>
@@ -693,6 +588,17 @@ export default function CaseDetailPage() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Tab: Activity Timeline */}
+      {activeTab === "activity" && (
+        <CaseActivityFeed caseId={id} />
+      )}
+
+      {/* Tab: Discussion & Notes */}
+      {activeTab === "discussion" && (
+        <CaseCommentsSection caseId={id} />
+      )}
 
       {/* ── Direct Evidence Upload Modal (Dark Themed) ──────────────── */}
       {showUploadModal && (
@@ -883,11 +789,6 @@ export default function CaseDetailPage() {
           </div>
         </div>
       )}
-
-      {/* ── Comments section ─────────────────────────────────────── */}
-      <div style={{ marginTop: 24 }}>
-        <CommentsSection caseId={id} />
-      </div>
     </WorkspaceShell>
   );
 }

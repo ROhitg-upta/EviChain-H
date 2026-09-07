@@ -83,6 +83,10 @@ router.post(
         return res.status(400).json({ error: "File is required" });
       }
 
+      const idempotencyKey =
+        (req.headers["idempotency-key"] as string) ||
+        (typeof req.body.idempotencyKey === "string" ? req.body.idempotencyKey : undefined);
+
       const evidence = await processEvidenceUpload({
         file,
         caseId: parsed.data.caseId ?? null,
@@ -93,6 +97,7 @@ router.post(
         description: parsed.data.description,
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"],
+        idempotencyKey,
       });
 
       return res.status(201).json({
@@ -106,7 +111,10 @@ router.post(
         status: evidence.status,
         createdAt: evidence.createdAt,
       });
-    } catch (error) {
+    } catch (error: unknown) {
+      if (error instanceof UploadError) {
+        return res.status(error.statusCode).json({ code: error.code, error: error.message });
+      }
       console.error("Evidence creation error:", error);
       return res.status(500).json({ error: "Failed to register evidence" });
     }
@@ -767,63 +775,397 @@ router.get("/:id/download", requireAuth, async (req: AuthedRequest, res) => {
 });
 
 
-// ── GET /evidence/:id/annotations ────────────────────────────────
+// ── Helper: Evidence Access Verification ─────────────────────────
+async function getAuthorizedEvidence(evidenceId: string, userId?: string, userRole?: string) {
+  const evidence = await prisma.evidence.findUnique({
+    where: { id: evidenceId },
+    include: {
+      case: { select: { id: true, leadUserId: true, title: true } },
+    },
+  });
+
+  if (!evidence) {
+    return { errorStatus: 404, errorMessage: "Evidence not found", evidence: null };
+  }
+
+  if (!userId || !userRole) {
+    return { errorStatus: 401, errorMessage: "Unauthorized", evidence: null };
+  }
+
+  if (userRole === "ADMINISTRATOR" || userRole === "AUDITOR") {
+    return { errorStatus: 0, errorMessage: "", evidence };
+  }
+
+  if (evidence.collectedById === userId || evidence.currentCustodianId === userId) {
+    return { errorStatus: 0, errorMessage: "", evidence };
+  }
+
+  if (evidence.case && evidence.case.leadUserId === userId) {
+    return { errorStatus: 0, errorMessage: "", evidence };
+  }
+
+  return { errorStatus: 403, errorMessage: "You do not have access to this evidence record", evidence: null };
+}
+
+function validateNormalizedCoords(val: unknown): boolean {
+  if (val === null || val === undefined) return true;
+  if (typeof val === "number") {
+    return val >= 0 && val <= 1;
+  }
+  if (Array.isArray(val)) {
+    return val.every((item) => validateNormalizedCoords(item));
+  }
+  if (typeof val === "object") {
+    for (const key of Object.keys(val as object)) {
+      const prop = (val as Record<string, unknown>)[key];
+      if (typeof prop === "number") {
+        if (prop < 0 || prop > 1) return false;
+      } else if (typeof prop === "object") {
+        if (!validateNormalizedCoords(prop)) return false;
+      }
+    }
+    return true;
+  }
+  return true;
+}
+
+// ── GET /evidence/:id/annotations ─────────────────────────────────
 router.get("/:id/annotations", requireAuth, async (req: AuthedRequest, res) => {
   try {
     const evidenceId = req.params["id"] as string;
+    const authCheck = await getAuthorizedEvidence(evidenceId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.evidence) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
+
     const annotations = await prisma.evidenceAnnotation.findMany({
-      where: { evidenceId },
-      include: { user: { select: { name: true } } },
+      where: { evidenceId, deletedAt: null },
+      include: {
+        user: { select: { id: true, name: true, role: true, email: true } },
+      },
       orderBy: { createdAt: "asc" },
     });
-    return res.json(annotations);
+
+    const shaped = annotations.map((ann) => ({
+      id: ann.id,
+      evidenceId: ann.evidenceId,
+      userId: ann.userId,
+      type: ann.type,
+      points: ann.points ?? ann.coordinates ?? [],
+      coordinates: ann.coordinates ?? ann.points ?? null,
+      pageNumber: ann.pageNumber,
+      text: ann.text ?? ann.note ?? null,
+      note: ann.note ?? ann.text ?? null,
+      color: ann.color,
+      createdAt: ann.createdAt.toISOString(),
+      editedAt: ann.editedAt?.toISOString() ?? null,
+      user: {
+        id: ann.user.id,
+        name: ann.user.name,
+        role: ann.user.role,
+        email: ann.user.email,
+      },
+    }));
+
+    return res.json(shaped);
   } catch (error) {
     console.error("Annotations get error:", error);
     return res.status(500).json({ error: "Failed to fetch annotations" });
   }
 });
 
-// ── POST /evidence/:id/annotations ───────────────────────────────
+// ── POST /evidence/:id/annotations ────────────────────────────────
 router.post("/:id/annotations", requireAuth, async (req: AuthedRequest, res) => {
   try {
     const evidenceId = req.params["id"] as string;
-    const { annotations } = req.body as {
-      annotations: Array<{ type: string; points: { x: number; y: number }[]; text?: string; color: string }>;
-    };
 
-    if (!Array.isArray(annotations)) {
-      return res.status(400).json({ error: "Annotations array required" });
+    if (req.userRole === "AUDITOR") {
+      return res.status(403).json({ error: "Auditors have read-only access and cannot create annotations" });
     }
 
-    await prisma.evidenceAnnotation.deleteMany({ where: { evidenceId, userId: req.userId! } });
+    const authCheck = await getAuthorizedEvidence(evidenceId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.evidence) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
 
-    const created = await prisma.evidenceAnnotation.createMany({
-      data: annotations.map((a) => ({
+    const body = req.body;
+
+    // Handle bulk save compatibility mode
+    if (Array.isArray(body.annotations)) {
+      const items = body.annotations as Array<{
+        type: string;
+        points?: unknown;
+        coordinates?: unknown;
+        pageNumber?: number;
+        text?: string;
+        note?: string;
+        color?: string;
+      }>;
+
+      // Validate coordinates for all items
+      for (const it of items) {
+        if (!validateNormalizedCoords(it.points) || !validateNormalizedCoords(it.coordinates)) {
+          return res.status(400).json({ error: "Annotation coordinates must be normalized between 0 and 1" });
+        }
+      }
+
+      // Soft delete previous annotations by this user on this evidence
+      await prisma.evidenceAnnotation.updateMany({
+        where: { evidenceId, userId: req.userId!, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+
+      const created = await prisma.$transaction(
+        items.map((a) =>
+          prisma.evidenceAnnotation.create({
+            data: {
+              evidenceId,
+              userId: req.userId!,
+              type: a.type || "POINT",
+              points: (a.points as object) ?? (a.coordinates as object) ?? [],
+              coordinates: (a.coordinates as object) ?? (a.points as object) ?? null,
+              pageNumber: typeof a.pageNumber === "number" ? a.pageNumber : null,
+              text: a.text ?? a.note ?? null,
+              note: a.note ?? a.text ?? null,
+              color: a.color || "#22d3ee",
+            },
+          }),
+        ),
+      );
+
+      await prisma.auditLog.create({
+        data: {
+          actorUserId: req.userId!,
+          action: "evidence.annotation.create",
+          resourceType: "evidence",
+          resourceId: evidenceId,
+          detailJson: { count: created.length, bulk: true },
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+        },
+      });
+
+      return res.status(201).json({ count: created.length, annotations: created });
+    }
+
+    // Single annotation creation
+    const { type, points, coordinates, pageNumber, text, note, color } = body;
+    const effectiveCoords = coordinates ?? points;
+    const effectiveNote = note ?? text;
+
+    if (!type || typeof type !== "string") {
+      return res.status(400).json({ error: "type is required" });
+    }
+
+    if (!validateNormalizedCoords(effectiveCoords)) {
+      return res.status(400).json({ error: "Annotation coordinates must be normalized between 0 and 1" });
+    }
+
+    const created = await prisma.evidenceAnnotation.create({
+      data: {
         evidenceId,
         userId: req.userId!,
-        type:   a.type,
-        points: a.points,
-        text:   a.text ?? null,
-        color:  a.color,
-      })),
+        type,
+        points: (effectiveCoords as object) ?? [],
+        coordinates: (effectiveCoords as object) ?? null,
+        pageNumber: typeof pageNumber === "number" ? pageNumber : null,
+        text: effectiveNote ?? null,
+        note: effectiveNote ?? null,
+        color: typeof color === "string" ? color : "#22d3ee",
+      },
+      include: {
+        user: { select: { id: true, name: true, role: true, email: true } },
+      },
     });
 
     await prisma.auditLog.create({
       data: {
-        actorUserId:  req.userId!,
-        action:       "evidence.annotate",
+        actorUserId: req.userId!,
+        action: "evidence.annotation.create",
         resourceType: "evidence",
-        resourceId:   evidenceId,
-        detailJson:   { count: created.count },
-        ipAddress:    req.ip,
-        userAgent:    req.headers["user-agent"],
+        resourceId: evidenceId,
+        detailJson: {
+          annotationId: created.id,
+          type: created.type,
+          pageNumber: created.pageNumber,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
       },
     });
 
-    return res.json({ count: created.count });
+    return res.status(201).json({
+      id: created.id,
+      evidenceId: created.evidenceId,
+      userId: created.userId,
+      type: created.type,
+      points: created.points ?? created.coordinates ?? [],
+      coordinates: created.coordinates ?? created.points ?? null,
+      pageNumber: created.pageNumber,
+      text: created.text ?? created.note ?? null,
+      note: created.note ?? created.text ?? null,
+      color: created.color,
+      createdAt: created.createdAt.toISOString(),
+      editedAt: created.editedAt?.toISOString() ?? null,
+      user: created.user,
+    });
   } catch (error) {
     console.error("Annotations save error:", error);
     return res.status(500).json({ error: "Failed to save annotations" });
+  }
+});
+
+// ── PATCH /evidence/:id/annotations/:annId ────────────────────────
+router.patch("/:id/annotations/:annId", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const evidenceId = req.params["id"] as string;
+    const annId = req.params["annId"] as string;
+
+    if (req.userRole === "AUDITOR") {
+      return res.status(403).json({ error: "Auditors have read-only access and cannot edit annotations" });
+    }
+
+    const authCheck = await getAuthorizedEvidence(evidenceId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.evidence) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
+
+    const existing = await prisma.evidenceAnnotation.findFirst({
+      where: { id: annId, evidenceId, deletedAt: null },
+      include: { user: { select: { id: true, name: true, role: true } } },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Annotation not found" });
+    }
+
+    const isAuthor = existing.userId === req.userId;
+    const isAdmin = req.userRole === "ADMINISTRATOR";
+
+    if (!isAuthor && !isAdmin) {
+      return res.status(403).json({ error: "You can only edit your own annotations" });
+    }
+
+    const { type, points, coordinates, pageNumber, text, note, color, reason } = req.body;
+    const effectiveCoords = coordinates !== undefined ? coordinates : points;
+    const effectiveNote = note !== undefined ? note : text;
+
+    if (effectiveCoords !== undefined && !validateNormalizedCoords(effectiveCoords)) {
+      return res.status(400).json({ error: "Annotation coordinates must be normalized between 0 and 1" });
+    }
+
+    const updated = await prisma.evidenceAnnotation.update({
+      where: { id: annId },
+      data: {
+        type: typeof type === "string" ? type : undefined,
+        points: effectiveCoords !== undefined ? (effectiveCoords as object) : undefined,
+        coordinates: effectiveCoords !== undefined ? (effectiveCoords as object) : undefined,
+        pageNumber: typeof pageNumber === "number" ? pageNumber : undefined,
+        text: effectiveNote !== undefined ? (effectiveNote as string) : undefined,
+        note: effectiveNote !== undefined ? (effectiveNote as string) : undefined,
+        color: typeof color === "string" ? color : undefined,
+        editedAt: new Date(),
+      },
+      include: {
+        user: { select: { id: true, name: true, role: true, email: true } },
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: req.userId!,
+        action: isAdmin && !isAuthor ? "evidence.annotation.moderate" : "evidence.annotation.edit",
+        resourceType: "evidence",
+        resourceId: evidenceId,
+        detailJson: {
+          annotationId: annId,
+          originalAuthorId: existing.userId,
+          moderated: isAdmin && !isAuthor,
+          reason: typeof reason === "string" ? reason : undefined,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+      },
+    });
+
+    return res.json({
+      id: updated.id,
+      evidenceId: updated.evidenceId,
+      userId: updated.userId,
+      type: updated.type,
+      points: updated.points ?? updated.coordinates ?? [],
+      coordinates: updated.coordinates ?? updated.points ?? null,
+      pageNumber: updated.pageNumber,
+      text: updated.text ?? updated.note ?? null,
+      note: updated.note ?? updated.text ?? null,
+      color: updated.color,
+      createdAt: updated.createdAt.toISOString(),
+      editedAt: updated.editedAt?.toISOString() ?? null,
+      user: updated.user,
+    });
+  } catch (error) {
+    console.error("Annotation edit error:", error);
+    return res.status(500).json({ error: "Failed to update annotation" });
+  }
+});
+
+// ── DELETE /evidence/:id/annotations/:annId ───────────────────────
+router.delete("/:id/annotations/:annId", requireAuth, async (req: AuthedRequest, res) => {
+  try {
+    const evidenceId = req.params["id"] as string;
+    const annId = req.params["annId"] as string;
+
+    if (req.userRole === "AUDITOR") {
+      return res.status(403).json({ error: "Auditors have read-only access and cannot delete annotations" });
+    }
+
+    const authCheck = await getAuthorizedEvidence(evidenceId, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.evidence) {
+      return res.status(authCheck.errorStatus).json({ error: authCheck.errorMessage });
+    }
+
+    const existing = await prisma.evidenceAnnotation.findFirst({
+      where: { id: annId, evidenceId, deletedAt: null },
+      include: { user: { select: { id: true, name: true, role: true } } },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Annotation not found" });
+    }
+
+    const isAuthor = existing.userId === req.userId;
+    const isAdmin = req.userRole === "ADMINISTRATOR";
+
+    if (!isAuthor && !isAdmin) {
+      return res.status(403).json({ error: "You can only delete your own annotations" });
+    }
+
+    await prisma.evidenceAnnotation.update({
+      where: { id: annId },
+      data: { deletedAt: new Date() },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        actorUserId: req.userId!,
+        action: isAdmin && !isAuthor ? "evidence.annotation.moderate" : "evidence.annotation.delete",
+        resourceType: "evidence",
+        resourceId: evidenceId,
+        detailJson: {
+          annotationId: annId,
+          originalAuthorId: existing.userId,
+          action: "soft_delete",
+          moderated: isAdmin && !isAuthor,
+        },
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+      },
+    });
+
+    return res.json({ success: true, message: "Annotation deleted successfully", id: annId });
+  } catch (error) {
+    console.error("Annotation delete error:", error);
+    return res.status(500).json({ error: "Failed to delete annotation" });
   }
 });
 

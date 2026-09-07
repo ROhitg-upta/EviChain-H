@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/app/auth-context";
-import { WORKSPACE_NAV, MOBILE_NAV, type NavItem } from "@/lib/navigation";
+import { WORKSPACE_NAV, type NavItem } from "@/lib/navigation";
 import NotificationBell from "@/app/components/notification-bell";
+import ConnectivityBanner from "./connectivity-banner";
+import OfflineQueuePanel from "./offline-queue-panel";
+import EvidenceCaptureSheet from "./evidence-capture-sheet";
+import MobileBottomNav from "./mobile-bottom-nav";
+import { getOfflineDrafts } from "@/lib/offline-queue";
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
 
@@ -30,10 +35,30 @@ export default function WorkspaceShell({ children, breadcrumbs }: WorkspaceShell
   const { user, loading, signOut } = useAuth();
   const pathname = usePathname() ?? "/";
 
+  const [isQueueOpen, setIsQueueOpen] = useState(false);
+  const [isCaptureOpen, setIsCaptureOpen] = useState(false);
+  const [pendingDraftsCount, setPendingDraftsCount] = useState(0);
+
   /* Auth guard — redirect if not authenticated */
   useEffect(() => {
     if (!loading && !user) window.location.replace("/login");
   }, [loading, user]);
+
+  /* Check offline drafts count */
+  useEffect(() => {
+    if (!user) return;
+    const checkCount = async () => {
+      try {
+        const drafts = await getOfflineDrafts(user.id);
+        setPendingDraftsCount(drafts.filter((d) => d.status !== "SYNCED").length);
+      } catch {
+        // IDB error fallback
+      }
+    };
+    checkCount();
+    const interval = setInterval(checkCount, 6000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   if (loading) {
     return (
@@ -121,6 +146,9 @@ export default function WorkspaceShell({ children, breadcrumbs }: WorkspaceShell
 
       {/* ── Main content area ──────────────────────────────────────── */}
       <div className="ws-main">
+        {/* Connectivity Strip */}
+        <ConnectivityBanner onOpenQueue={() => setIsQueueOpen(true)} />
+
         {/* Top header bar */}
         <header className="ws-topbar">
           {/* Breadcrumbs */}
@@ -140,6 +168,15 @@ export default function WorkspaceShell({ children, breadcrumbs }: WorkspaceShell
 
           {/* Right side */}
           <div className="ws-topbar-right">
+            {pendingDraftsCount > 0 && (
+              <button
+                onClick={() => setIsQueueOpen(true)}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#21262d] hover:bg-[#30363d] text-amber-300 text-xs font-semibold border border-amber-500/30 transition-colors cursor-pointer"
+                title="View offline evidence drafts"
+              >
+                <span>Offline Vault ({pendingDraftsCount})</span>
+              </button>
+            )}
             <div className="ws-secure-status" aria-label="System status: secure">
               <span className="ws-status-dot" aria-hidden="true" />
               <span>Secure</span>
@@ -157,20 +194,23 @@ export default function WorkspaceShell({ children, breadcrumbs }: WorkspaceShell
         </main>
       </div>
 
-      {/* ── Mobile bottom nav ──────────────────────────────────────── */}
-      <nav className="ws-mobile-nav" aria-label="Mobile navigation">
-        {MOBILE_NAV.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`ws-mobile-item${isActive(pathname, item.href) ? " ws-mobile-item--active" : ""}`}
-            aria-current={isActive(pathname, item.href) ? "page" : undefined}
-          >
-            <span className="ws-mobile-icon" aria-hidden="true">{item.icon}</span>
-            <span className="ws-mobile-label">{item.label}</span>
-          </Link>
-        ))}
-      </nav>
+      {/* ── Mobile Bottom Navigation with Center Capture CTA ────────── */}
+      <MobileBottomNav
+        onOpenCapture={() => setIsCaptureOpen(true)}
+        onOpenOfflineQueue={() => setIsQueueOpen(true)}
+        pendingOfflineCount={pendingDraftsCount}
+      />
+
+      {/* ── Modals / Drawers ───────────────────────────────────────── */}
+      <OfflineQueuePanel
+        isOpen={isQueueOpen}
+        onClose={() => setIsQueueOpen(false)}
+      />
+
+      <EvidenceCaptureSheet
+        isOpen={isCaptureOpen}
+        onClose={() => setIsCaptureOpen(false)}
+      />
     </div>
   );
 }
