@@ -53,10 +53,11 @@ export default function MobileLayout({ children }: { children: ReactNode }) {
 
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         {[
-          { href: "/mobile",    icon: "⊞", label: "Home"     },
-          { href: "/evidence",  icon: "◈", label: "Evidence" },
-          { href: "/cases",     icon: "▣", label: "Cases"    },
-          { href: "/profile",   icon: "○", label: "Profile"  },
+          { href: "/mobile",        icon: "⊞", label: "Home"     },
+          { href: "/evidence",      icon: "◈", label: "Evidence" },
+          { href: "/cases",         icon: "▣", label: "Cases"    },
+          { href: "/notifications", icon: "⚑", label: "Alerts"   },
+          { href: "/profile",       icon: "○", label: "Profile"  },
         ].map(({ href, icon, label }) => (
           <a key={href} href={href} className="nav-item" aria-label={label}>
             <span aria-hidden="true">{icon}</span>

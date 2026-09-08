@@ -41,6 +41,12 @@ export interface CreateNotificationInput {
   entityId?: string | null;
   metadataJson?: Record<string, unknown> | null;
   dedupeKey?: string | null;
+  severity?: string;
+  actionRequired?: boolean;
+  actionType?: string | null;
+  actionPayload?: Record<string, unknown> | null;
+  groupingKey?: string | null;
+  expiresAt?: Date | null;
 }
 
 export interface NotificationPreferences {
@@ -236,6 +242,12 @@ class NotificationService {
         data: {
           userId: input.userId,
           type: input.type,
+          severity: input.severity ?? "INFO",
+          actionRequired: input.actionRequired ?? false,
+          actionType: input.actionType ?? null,
+          actionPayload: (input.actionPayload as unknown as object) ?? undefined,
+          groupingKey: input.groupingKey ?? null,
+          expiresAt: input.expiresAt ?? null,
           title: input.title,
           message: input.message,
           link: input.link ?? null,

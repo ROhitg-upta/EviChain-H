@@ -8,6 +8,11 @@ import {
   type NotificationPreferenceKey,
 } from "../services/notification.service";
 
+import {
+  alertIntelligenceService,
+  type AlertActionType,
+} from "../services/alert-intelligence.service";
+
 const router = Router();
 
 // Allowed preference keys for PUT /notifications/preferences
@@ -20,6 +25,22 @@ const ALLOWED_PREFERENCE_KEYS = new Set<string>([
   "reportReady",
   "weeklyDigest",
 ]);
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /notifications/needs-attention — Real-time Forensic Alert Queue
+// ═══════════════════════════════════════════════════════════════════
+router.get("/needs-attention", requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const items = await alertIntelligenceService.getNeedsAttentionQueue(req.userId!, req.userRole!);
+    return res.json({
+      items,
+      count: items.length,
+    });
+  } catch (error) {
+    console.error("[Notifications API] Needs Attention error:", error);
+    return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to fetch needs-attention queue" } });
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════════
 // GET /notifications/stream — Real-time Server-Sent Events (SSE)
@@ -93,6 +114,10 @@ router.get("/", requireAuth, async (req: AuthedRequest, res: Response) => {
 
     const unreadOnly = req.query.unreadOnly === "true";
     const typeFilter = req.query.type as string | undefined;
+    const severity = req.query.severity as string | undefined;
+    const actionRequired = req.query.actionRequired as string | undefined;
+    const includeDismissed = req.query.includeDismissed === "true";
+    const grouped = req.query.grouped === "true";
     const from = req.query.from as string | undefined;
     const to = req.query.to as string | undefined;
 
@@ -104,6 +129,18 @@ router.get("/", requireAuth, async (req: AuthedRequest, res: Response) => {
 
     if (typeFilter && typeFilter !== "ALL") {
       andConditions.push({ type: typeFilter });
+    }
+
+    if (severity && severity !== "ALL") {
+      andConditions.push({ severity });
+    }
+
+    if (actionRequired === "true") {
+      andConditions.push({ actionRequired: true, resolvedAt: null });
+    }
+
+    if (!includeDismissed) {
+      andConditions.push({ dismissedAt: null });
     }
 
     if (from || to) {
@@ -126,7 +163,7 @@ router.get("/", requireAuth, async (req: AuthedRequest, res: Response) => {
 
     const where = { AND: andConditions };
 
-    const [totalItems, items, unreadCount] = await Promise.all([
+    const [totalItems, items, unreadCount, actionRequiredCount] = await Promise.all([
       prisma.notification.count({ where }),
       prisma.notification.findMany({
         where,
@@ -135,15 +172,20 @@ router.get("/", requireAuth, async (req: AuthedRequest, res: Response) => {
         take: pageSize,
       }),
       prisma.notification.count({
-        where: { userId: req.userId!, read: false },
+        where: { userId: req.userId!, read: false, dismissedAt: null },
+      }),
+      prisma.notification.count({
+        where: { userId: req.userId!, actionRequired: true, resolvedAt: null, dismissedAt: null },
       }),
     ]);
 
     const totalPages = Math.ceil(totalItems / pageSize) || 0;
+    const groupedItems = grouped ? alertIntelligenceService.groupNotifications(items) : undefined;
 
     return res.json({
       items,
       notifications: items, // Backwards compatibility for legacy components
+      grouped: groupedItems,
       pagination: {
         page,
         pageSize,
@@ -151,6 +193,7 @@ router.get("/", requireAuth, async (req: AuthedRequest, res: Response) => {
         totalPages,
       },
       unreadCount,
+      actionRequiredCount,
     });
   } catch (error) {
     console.error("[Notifications API] Fetch error:", error);
@@ -192,6 +235,56 @@ router.patch("/read-all", requireAuth, async (req: AuthedRequest, res: Response)
   } catch (error) {
     console.error("[Notifications API] Mark all read error:", error);
     return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to mark all as read" } });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /notifications/:id/action — Execute forensic triage action
+// ═══════════════════════════════════════════════════════════════════
+router.post("/:id/action", requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const id = req.params["id"] as string;
+    const actionType = req.body?.actionType as AlertActionType;
+    if (!actionType || typeof actionType !== "string") {
+      return res.status(400).json({ error: { code: "INVALID_ACTION", message: "Valid actionType string is required in request body" } });
+    }
+
+    const result = await alertIntelligenceService.resolveNotificationAction(
+      req.userId!,
+      req.userRole!,
+      id,
+      actionType,
+      req.ip,
+      req.headers["user-agent"],
+    );
+
+    if ("error" in result) {
+      return res.status(result.status).json({ error: { code: "ACTION_FAILED", message: result.error } });
+    }
+
+    return res.json(result.data);
+  } catch (error) {
+    console.error("[Notifications API] Action error:", error);
+    return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to process alert action" } });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PATCH /notifications/:id/dismiss — Soft-dismiss alert for user UI
+// ═══════════════════════════════════════════════════════════════════
+router.patch("/:id/dismiss", requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const id = req.params["id"] as string;
+    const result = await alertIntelligenceService.dismissNotification(req.userId!, id);
+
+    if ("error" in result) {
+      return res.status(result.status).json({ error: { code: "DISMISS_FAILED", message: result.error } });
+    }
+
+    return res.json(result.data);
+  } catch (error) {
+    console.error("[Notifications API] Dismiss error:", error);
+    return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to dismiss notification" } });
   }
 });
 

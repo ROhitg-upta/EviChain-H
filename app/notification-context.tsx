@@ -12,20 +12,35 @@ import {
 import { useAuth } from "./auth-context";
 import {
   getNotifications,
+  getNeedsAttentionAlerts,
+  executeAlertAction as apiExecuteAction,
+  dismissNotificationAlert as apiDismissAlert,
   markNotificationRead as apiMarkRead,
   markAllNotificationsRead as apiMarkAllRead,
   deleteNotification as apiDeleteNotification,
   getNotificationStreamUrl,
   type NotificationRecord,
   type NotificationType,
+  type AlertSeverity,
+  type NeedsAttentionItem,
 } from "../lib/api";
+
+export type { AlertSeverity, NeedsAttentionItem };
 
 export interface Notification {
   id: string;
   type: NotificationType;
+  severity?: AlertSeverity;
+  actionRequired?: boolean;
+  actionType?: string | null;
+  actionPayload?: Record<string, unknown> | null;
+  dismissedAt?: string | null;
+  resolvedAt?: string | null;
+  groupingKey?: string | null;
   title: string;
   message: string;
   read: boolean;
+  readAt?: string | null;
   createdAt: string;
   link?: string;
   entityType?: string;
@@ -35,32 +50,62 @@ export interface Notification {
 export interface ToastMessage {
   id: string;
   type: NotificationType;
+  severity?: AlertSeverity;
   title: string;
   message?: string;
   duration?: number;
 }
 
-interface NotificationState {
+export type HighestSeverity = "NONE" | "INFO" | "SUCCESS" | "WARNING" | "HIGH" | "CRITICAL" | "SECURITY";
+
+export interface NotificationState {
   notifications: Notification[];
   toasts: ToastMessage[];
   unreadCount: number;
+  actionRequiredCount: number;
+  highestUnreadSeverity: HighestSeverity;
+  needsAttentionQueue: NeedsAttentionItem[];
   loading: boolean;
 }
 
 type NotificationAction =
-  | { type: "SET_NOTIFICATIONS"; payload: { notifications: Notification[]; unreadCount: number } }
+  | {
+      type: "SET_NOTIFICATIONS";
+      payload: {
+        notifications: Notification[];
+        unreadCount: number;
+        actionRequiredCount: number;
+      };
+    }
+  | { type: "SET_NEEDS_ATTENTION"; payload: NeedsAttentionItem[] }
   | { type: "ADD_NOTIFICATION"; payload: Notification }
   | { type: "MARK_READ"; payload: string }
   | { type: "MARK_ALL_READ" }
+  | { type: "RESOLVE_ACTION"; payload: string }
   | { type: "REMOVE_NOTIFICATION"; payload: string }
   | { type: "ADD_TOAST"; payload: ToastMessage }
   | { type: "REMOVE_TOAST"; payload: string }
   | { type: "SET_LOADING"; payload: boolean };
 
+function computeHighestSeverity(items: Notification[]): HighestSeverity {
+  const unreadItems = items.filter((n) => !n.read && !n.dismissedAt);
+  if (unreadItems.length === 0) return "NONE";
+
+  if (unreadItems.some((n) => n.severity === "CRITICAL")) return "CRITICAL";
+  if (unreadItems.some((n) => n.severity === "SECURITY")) return "SECURITY";
+  if (unreadItems.some((n) => n.severity === "HIGH")) return "HIGH";
+  if (unreadItems.some((n) => n.severity === "WARNING")) return "WARNING";
+  if (unreadItems.some((n) => n.severity === "SUCCESS")) return "SUCCESS";
+  return "INFO";
+}
+
 const initialState: NotificationState = {
   notifications: [],
   toasts: [],
   unreadCount: 0,
+  actionRequiredCount: 0,
+  highestUnreadSeverity: "NONE",
+  needsAttentionQueue: [],
   loading: false,
 };
 
@@ -69,40 +114,92 @@ function notificationReducer(
   action: NotificationAction,
 ): NotificationState {
   switch (action.type) {
-    case "SET_NOTIFICATIONS":
+    case "SET_NOTIFICATIONS": {
+      const highest = computeHighestSeverity(action.payload.notifications);
       return {
         ...state,
         notifications: action.payload.notifications,
         unreadCount: action.payload.unreadCount,
+        actionRequiredCount: action.payload.actionRequiredCount,
+        highestUnreadSeverity: highest,
+      };
+    }
+    case "SET_NEEDS_ATTENTION":
+      return {
+        ...state,
+        needsAttentionQueue: action.payload,
       };
     case "ADD_NOTIFICATION": {
-      // Check if already in list
       if (state.notifications.some((n) => n.id === action.payload.id)) {
         return state;
       }
       const next = [action.payload, ...state.notifications];
+      const highest = computeHighestSeverity(next);
+      const isUnread = !action.payload.read;
+      const isAction = Boolean(action.payload.actionRequired && !action.payload.resolvedAt);
+
       return {
         ...state,
         notifications: next,
-        unreadCount: state.unreadCount + (action.payload.read ? 0 : 1),
+        unreadCount: state.unreadCount + (isUnread ? 1 : 0),
+        actionRequiredCount: state.actionRequiredCount + (isAction ? 1 : 0),
+        highestUnreadSeverity: highest,
       };
     }
     case "MARK_READ": {
       const next = state.notifications.map((n) =>
-        n.id === action.payload ? { ...n, read: true } : n,
+        n.id === action.payload ? { ...n, read: true, readAt: new Date().toISOString() } : n,
       );
-      const unread = Math.max(0, state.unreadCount - 1);
-      return { ...state, notifications: next, unreadCount: unread };
+      const highest = computeHighestSeverity(next);
+      return {
+        ...state,
+        notifications: next,
+        unreadCount: Math.max(0, state.unreadCount - 1),
+        highestUnreadSeverity: highest,
+      };
     }
     case "MARK_ALL_READ": {
-      const next = state.notifications.map((n) => ({ ...n, read: true }));
-      return { ...state, notifications: next, unreadCount: 0 };
+      const nowIso = new Date().toISOString();
+      const next = state.notifications.map((n) => ({ ...n, read: true, readAt: n.readAt ?? nowIso }));
+      return {
+        ...state,
+        notifications: next,
+        unreadCount: 0,
+        highestUnreadSeverity: "NONE",
+      };
+    }
+    case "RESOLVE_ACTION": {
+      const nowIso = new Date().toISOString();
+      const next = state.notifications.map((n) =>
+        n.id === action.payload
+          ? { ...n, read: true, readAt: n.readAt ?? nowIso, resolvedAt: nowIso }
+          : n,
+      );
+      const nextQueue = state.needsAttentionQueue.filter((q) => q.id !== action.payload);
+      return {
+        ...state,
+        notifications: next,
+        needsAttentionQueue: nextQueue,
+        actionRequiredCount: Math.max(0, state.actionRequiredCount - 1),
+        unreadCount: Math.max(0, state.unreadCount - 1),
+        highestUnreadSeverity: computeHighestSeverity(next),
+      };
     }
     case "REMOVE_NOTIFICATION": {
       const removed = state.notifications.find((n) => n.id === action.payload);
       const next = state.notifications.filter((n) => n.id !== action.payload);
-      const unread = removed && !removed.read ? Math.max(0, state.unreadCount - 1) : state.unreadCount;
-      return { ...state, notifications: next, unreadCount: unread };
+      const nextQueue = state.needsAttentionQueue.filter((q) => q.id !== action.payload);
+      const unreadDec = removed && !removed.read ? 1 : 0;
+      const actionDec = removed && removed.actionRequired && !removed.resolvedAt ? 1 : 0;
+
+      return {
+        ...state,
+        notifications: next,
+        needsAttentionQueue: nextQueue,
+        unreadCount: Math.max(0, state.unreadCount - unreadDec),
+        actionRequiredCount: Math.max(0, state.actionRequiredCount - actionDec),
+        highestUnreadSeverity: computeHighestSeverity(next),
+      };
     }
     case "ADD_TOAST":
       return { ...state, toasts: [...state.toasts, action.payload] };
@@ -118,10 +215,13 @@ function notificationReducer(
   }
 }
 
-interface NotificationContextValue extends NotificationState {
+export interface NotificationContextValue extends NotificationState {
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
   dismiss: (id: string) => Promise<void>;
+  dismissAlert: (id: string) => Promise<boolean>;
+  executeAction: (id: string, actionType: string) => Promise<boolean>;
+  fetchNeedsAttention: () => Promise<void>;
   toast: (toast: Omit<ToastMessage, "id">) => void;
   dismissToast: (id: string) => void;
   refresh: () => Promise<void>;
@@ -129,7 +229,7 @@ interface NotificationContextValue extends NotificationState {
 
 const NotificationContext = createContext<NotificationContextValue | null>(null);
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 45_000;
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const { user, accessToken } = useAuth();
@@ -139,22 +239,43 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   const toast = useCallback((t: Omit<ToastMessage, "id">) => {
     const id = `toast_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const duration = t.duration ?? 4500;
+    const duration = t.duration ?? 5000;
     dispatch({ type: "ADD_TOAST", payload: { ...t, id } });
     if (duration > 0) {
       setTimeout(() => dispatch({ type: "REMOVE_TOAST", payload: id }), duration);
     }
   }, []);
 
+  const fetchNeedsAttention = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const res = await getNeedsAttentionAlerts(accessToken);
+      dispatch({ type: "SET_NEEDS_ATTENTION", payload: res.items || [] });
+    } catch {
+      // Background fetch silent
+    }
+  }, [accessToken]);
+
   const refresh = useCallback(async () => {
     if (!accessToken) return;
     dispatch({ type: "SET_LOADING", payload: true });
     try {
-      const data = await getNotifications(accessToken, { limit: 30 });
+      const [data, needsAttn] = await Promise.all([
+        getNotifications(accessToken, { limit: 40 }),
+        getNeedsAttentionAlerts(accessToken),
+      ]);
+
       const items = data.items || data.notifications || [];
       const mapped: Notification[] = items.map((n) => ({
         id: n.id,
         type: n.type,
+        severity: n.severity,
+        actionRequired: n.actionRequired,
+        actionType: n.actionType,
+        actionPayload: n.actionPayload,
+        dismissedAt: n.dismissedAt,
+        resolvedAt: n.resolvedAt,
+        groupingKey: n.groupingKey,
         title: n.title,
         message: n.message,
         read: n.read,
@@ -163,10 +284,19 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         entityType: n.entityType ?? undefined,
         entityId: n.entityId ?? undefined,
       }));
+
       dispatch({
         type: "SET_NOTIFICATIONS",
-        payload: { notifications: mapped, unreadCount: data.unreadCount },
+        payload: {
+          notifications: mapped,
+          unreadCount: data.unreadCount,
+          actionRequiredCount: data.actionRequiredCount ?? 0,
+        },
       });
+
+      if (needsAttn?.items) {
+        dispatch({ type: "SET_NEEDS_ATTENTION", payload: needsAttn.items });
+      }
     } catch {
       // Background fetch failure handled gracefully
     } finally {
@@ -192,6 +322,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
           const formatted: Notification = {
             id: notif.id,
             type: notif.type,
+            severity: notif.severity,
+            actionRequired: notif.actionRequired,
+            actionType: notif.actionType,
+            actionPayload: notif.actionPayload,
+            dismissedAt: notif.dismissedAt,
+            resolvedAt: notif.resolvedAt,
+            groupingKey: notif.groupingKey,
             title: notif.title,
             message: notif.message,
             read: notif.read,
@@ -204,9 +341,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
           toast({
             type: formatted.type,
+            severity: formatted.severity,
             title: formatted.title,
             message: formatted.message,
           });
+
+          // If action required, trigger needs attention refresh
+          if (formatted.actionRequired) {
+            fetchNeedsAttention();
+          }
         } catch (err) {
           console.error("SSE parse error:", err);
         }
@@ -231,17 +374,20 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         pollRef.current = null;
       }
     };
-  }, [user, accessToken, refresh, toast]);
+  }, [user, accessToken, refresh, fetchNeedsAttention, toast]);
 
-  const markAsRead = useCallback(async (id: string) => {
-    if (!accessToken) return;
-    dispatch({ type: "MARK_READ", payload: id });
-    try {
-      await apiMarkRead(accessToken, id);
-    } catch {
-      // Ignored if failed
-    }
-  }, [accessToken]);
+  const markAsRead = useCallback(
+    async (id: string) => {
+      if (!accessToken) return;
+      dispatch({ type: "MARK_READ", payload: id });
+      try {
+        await apiMarkRead(accessToken, id);
+      } catch {
+        // Ignored if failed
+      }
+    },
+    [accessToken],
+  );
 
   const markAllAsRead = useCallback(async () => {
     if (!accessToken) return;
@@ -253,15 +399,48 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, [accessToken]);
 
-  const dismiss = useCallback(async (id: string) => {
-    if (!accessToken) return;
-    dispatch({ type: "REMOVE_NOTIFICATION", payload: id });
-    try {
-      await apiDeleteNotification(accessToken, id);
-    } catch {
-      // Ignored if failed
-    }
-  }, [accessToken]);
+  const dismiss = useCallback(
+    async (id: string) => {
+      if (!accessToken) return;
+      dispatch({ type: "REMOVE_NOTIFICATION", payload: id });
+      try {
+        await apiDeleteNotification(accessToken, id);
+      } catch {
+        // Ignored if failed
+      }
+    },
+    [accessToken],
+  );
+
+  const dismissAlert = useCallback(
+    async (id: string): Promise<boolean> => {
+      if (!accessToken) return false;
+      dispatch({ type: "REMOVE_NOTIFICATION", payload: id });
+      try {
+        await apiDismissAlert(accessToken, id);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [accessToken],
+  );
+
+  const executeAction = useCallback(
+    async (id: string, actionType: string): Promise<boolean> => {
+      if (!accessToken) return false;
+      dispatch({ type: "RESOLVE_ACTION", payload: id });
+      try {
+        await apiExecuteAction(accessToken, id, actionType);
+        return true;
+      } catch (err) {
+        console.error("Execute action error:", err);
+        refresh();
+        return false;
+      }
+    },
+    [accessToken, refresh],
+  );
 
   const dismissToast = useCallback((id: string) => {
     dispatch({ type: "REMOVE_TOAST", payload: id });
@@ -274,6 +453,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         markAsRead,
         markAllAsRead,
         dismiss,
+        dismissAlert,
+        executeAction,
+        fetchNeedsAttention,
         toast,
         dismissToast,
         refresh,
@@ -287,9 +469,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 export function useNotifications() {
   const ctx = useContext(NotificationContext);
   if (!ctx) {
-    throw new Error(
-      "useNotifications must be used within a NotificationProvider",
-    );
+    throw new Error("useNotifications must be used within a NotificationProvider");
   }
   return ctx;
 }

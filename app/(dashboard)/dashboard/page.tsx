@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../auth-context";
+import { useNotifications } from "@/app/notification-context";
 import { getAuditLogs, getCases, getEvidence } from "@/lib/api";
 import type { CaseRecord, EvidenceRecord, AuditLog } from "@/lib/api";
 
@@ -15,6 +16,7 @@ type DashboardData = {
 
 export default function DashboardPage() {
   const { user, loading: authLoading, accessToken } = useAuth();
+  const { needsAttentionQueue, actionRequiredCount } = useNotifications();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -181,6 +183,169 @@ export default function DashboardPage() {
             </span>
           </div>
         ))}
+      </section>
+
+      {/* ── MODULE 14: Needs Attention Investigation Alert Widget ──────── */}
+      <section
+        style={{
+          background: "var(--surface-raised, #181b20)",
+          border: "1px solid var(--border-default, #23272f)",
+          borderRadius: "8px",
+          padding: "20px 24px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px",
+        }}
+        aria-label="Needs Attention Alerts"
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span
+              style={{
+                width: "10px",
+                height: "10px",
+                borderRadius: "50%",
+                background:
+                  needsAttentionQueue.length > 0
+                    ? "var(--accent-warning, #fbbf24)"
+                    : "var(--accent-verified, #b5f542)",
+                boxShadow:
+                  needsAttentionQueue.length > 0
+                    ? "0 0 10px rgba(251, 191, 36, 0.6)"
+                    : "none",
+              }}
+              aria-hidden="true"
+            />
+            <h2 style={{ fontSize: "1.125rem", fontWeight: 600, margin: 0, color: "var(--text-primary, #f8fafc)" }}>
+              Needs Attention
+            </h2>
+            {needsAttentionQueue.length > 0 && (
+              <span
+                style={{
+                  fontFamily: "var(--font-mono, monospace)",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                  borderRadius: "10px",
+                  background: "rgba(251, 191, 36, 0.15)",
+                  color: "#fbbf24",
+                  border: "1px solid rgba(251, 191, 36, 0.3)",
+                }}
+              >
+                {needsAttentionQueue.length} HIGH PRIORITY
+              </span>
+            )}
+          </div>
+
+          <Link
+            href="/notifications"
+            style={{
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "var(--brand-400, #4abe94)",
+              textDecoration: "none",
+            }}
+          >
+            Open Alert Center →
+          </Link>
+        </div>
+
+        {needsAttentionQueue.length === 0 ? (
+          <div
+            style={{
+              padding: "16px",
+              background: "rgba(74, 190, 148, 0.06)",
+              border: "1px solid rgba(74, 190, 148, 0.2)",
+              borderRadius: "6px",
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+            }}
+          >
+            <span style={{ color: "var(--brand-400, #4abe94)", fontSize: "18px", fontWeight: 800 }}>✓</span>
+            <span style={{ fontSize: "13.5px", color: "var(--text-secondary, #94a3b8)" }}>
+              All clear — no action-required evidence events or flagged integrity alerts detected.
+            </span>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {needsAttentionQueue.slice(0, 5).map((item) => {
+              const isCrit = item.severity === "CRITICAL" || item.severity === "SECURITY";
+              const badgeColor = isCrit ? "#f43f5e" : "#fbbf24";
+              const badgeBg = isCrit ? "rgba(244, 63, 94, 0.15)" : "rgba(251, 191, 36, 0.12)";
+              const border = isCrit ? "rgba(244, 63, 94, 0.35)" : "rgba(251, 191, 36, 0.3)";
+
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "12px 16px",
+                    background: "var(--surface-sunken, #0a0c0e)",
+                    border: `1px solid ${border}`,
+                    borderRadius: "6px",
+                    gap: "16px",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: "240px" }}>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono, monospace)",
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        background: badgeBg,
+                        color: badgeColor,
+                        border: `1px solid ${border}`,
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      {item.severity}
+                    </span>
+                    <div>
+                      <strong style={{ display: "block", fontSize: "13px", color: "var(--text-primary, #f8fafc)" }}>
+                        {item.title}
+                      </strong>
+                      <span style={{ fontSize: "12px", color: "var(--text-secondary, #94a3b8)" }}>
+                        {item.message}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-mono, monospace)",
+                        fontSize: "11px",
+                        color: "var(--text-muted, #94a3b8)",
+                      }}
+                    >
+                      {item.entityId ? `${item.entityType}: ${item.entityId.slice(0, 8)}…` : ""}
+                    </span>
+                    <Link
+                      href={item.link || "/notifications"}
+                      className="btn btn-sm"
+                      style={{
+                        background: isCrit ? "var(--accent-danger, #f43f5e)" : "var(--brand-500, #4abe94)",
+                        color: isCrit ? "#ffffff" : "#0a0c0e",
+                        fontWeight: 700,
+                        textDecoration: "none",
+                        minHeight: "32px",
+                        padding: "0 12px",
+                      }}
+                    >
+                      Triage →
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Main Two-Column Layout */}

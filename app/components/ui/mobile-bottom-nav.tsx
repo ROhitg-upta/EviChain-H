@@ -3,7 +3,8 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Briefcase, Camera, Shield, User, HardDrive } from "./icons";
+import { useNotifications } from "@/app/notification-context";
+import { LayoutDashboard, Briefcase, Camera, Shield } from "./icons";
 
 interface MobileBottomNavProps {
   onOpenCapture: () => void;
@@ -17,6 +18,7 @@ export default function MobileBottomNav({
   pendingOfflineCount = 0,
 }: MobileBottomNavProps) {
   const pathname = usePathname();
+  const { unreadCount, actionRequiredCount, highestUnreadSeverity } = useNotifications();
 
   const isActive = (path: string) => {
     if (path === "/" && pathname === "/") return true;
@@ -84,34 +86,47 @@ export default function MobileBottomNav({
           <span>Evidence</span>
         </Link>
 
-        {/* 5. Offline Queue or Profile */}
-        {pendingOfflineCount > 0 && onOpenOfflineQueue ? (
-          <button
-            type="button"
-            onClick={onOpenOfflineQueue}
-            className="flex flex-col items-center justify-center min-w-[56px] min-h-[48px] py-1 text-[11px] font-medium text-amber-400 relative transition-colors cursor-pointer"
-          >
-            <div className="relative">
-              <HardDrive className="w-5 h-5 mb-1" />
-              <span className="absolute -top-1 -right-2 bg-amber-500 text-[#0d1117] text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
-                {pendingOfflineCount}
+        {/* 5. Alerts / Investigation Command Center */}
+        <Link
+          href="/notifications"
+          className={`flex flex-col items-center justify-center min-w-[56px] min-h-[48px] py-1 text-[11px] font-medium transition-colors relative ${
+            isActive("/notifications")
+              ? "text-emerald-400 font-semibold"
+              : "text-[#8b949e] hover:text-[#c9d1d9]"
+          }`}
+          aria-label="Alerts"
+        >
+          <div className="relative">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-5 h-5 mb-1"
+            >
+              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+            {unreadCount > 0 && (
+              <span
+                className={`absolute -top-1 -right-2.5 text-[9px] font-bold min-w-4 h-4 px-1 rounded-full flex items-center justify-center ${
+                  highestUnreadSeverity === "CRITICAL" || highestUnreadSeverity === "SECURITY"
+                    ? "bg-rose-500 text-white"
+                    : actionRequiredCount > 0
+                    ? "bg-amber-400 text-slate-950"
+                    : "bg-emerald-500 text-slate-950"
+                }`}
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
               </span>
-            </div>
-            <span>Vault</span>
-          </button>
-        ) : (
-          <Link
-            href="/profile"
-            className={`flex flex-col items-center justify-center min-w-[56px] min-h-[48px] py-1 text-[11px] font-medium transition-colors ${
-              isActive("/profile")
-                ? "text-emerald-400 font-semibold"
-                : "text-[#8b949e] hover:text-[#c9d1d9]"
-            }`}
-          >
-            <User className="w-5 h-5 mb-1" />
-            <span>Profile</span>
-          </Link>
-        )}
+            )}
+          </div>
+          <span>Alerts</span>
+        </Link>
       </div>
     </nav>
   );

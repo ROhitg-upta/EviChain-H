@@ -1452,10 +1452,19 @@ export type NotificationType =
   | "transfer"
   | "mention";
 
+export type AlertSeverity = "INFO" | "SUCCESS" | "WARNING" | "HIGH" | "CRITICAL" | "SECURITY";
+
 export interface NotificationRecord {
   id: string;
   userId: string;
   type: NotificationType;
+  severity?: AlertSeverity;
+  actionRequired?: boolean;
+  actionType?: string | null;
+  actionPayload?: Record<string, unknown> | null;
+  dismissedAt?: string | null;
+  resolvedAt?: string | null;
+  groupingKey?: string | null;
   title: string;
   message: string;
   link: string | null;
@@ -1464,6 +1473,13 @@ export interface NotificationRecord {
   read: boolean;
   readAt?: string | null;
   createdAt: string;
+}
+
+export interface GroupedNotificationRecord {
+  groupKey: string;
+  count: number;
+  latest: NotificationRecord;
+  items: NotificationRecord[];
 }
 
 export interface NotificationPagination {
@@ -1476,8 +1492,25 @@ export interface NotificationPagination {
 export interface NotificationListResponse {
   items: NotificationRecord[];
   notifications: NotificationRecord[];
+  grouped?: GroupedNotificationRecord[];
   pagination: NotificationPagination;
   unreadCount: number;
+  actionRequiredCount?: number;
+}
+
+export interface NeedsAttentionItem {
+  id: string;
+  source: "NOTIFICATION" | "FLAGGED_EVIDENCE" | "INACTIVE_CASE";
+  severity: AlertSeverity;
+  actionRequired: boolean;
+  actionType: string;
+  title: string;
+  message: string;
+  entityType: string;
+  entityId: string;
+  link: string;
+  createdAt: string;
+  actionPayload?: Record<string, unknown> | null;
 }
 
 export function getNotificationStreamUrl(): string {
@@ -1492,6 +1525,10 @@ export async function getNotifications(
     limit?: number;
     unreadOnly?: boolean;
     type?: string;
+    severity?: string;
+    actionRequired?: boolean;
+    includeDismissed?: boolean;
+    grouped?: boolean;
     from?: string;
     to?: string;
   },
@@ -1502,6 +1539,10 @@ export async function getNotifications(
   else if (options?.limit) params.set("pageSize", String(options.limit));
   if (options?.unreadOnly) params.set("unreadOnly", "true");
   if (options?.type) params.set("type", options.type);
+  if (options?.severity) params.set("severity", options.severity);
+  if (options?.actionRequired) params.set("actionRequired", "true");
+  if (options?.includeDismissed) params.set("includeDismissed", "true");
+  if (options?.grouped) params.set("grouped", "true");
   if (options?.from) params.set("from", options.from);
   if (options?.to) params.set("to", options.to);
 
@@ -1588,6 +1629,57 @@ export async function deleteNotification(token: string, id: string): Promise<{ m
 
   if (!res.ok) {
     let errMsg = "Failed to delete notification";
+    try {
+      const e = await safeJson<{ error?: { message?: string } | string }>(res);
+      if (typeof e.error === "string") errMsg = e.error;
+      else if (e.error?.message) errMsg = e.error.message;
+    } catch {}
+    throw new Error(errMsg);
+  }
+
+  return safeJson(res);
+}
+
+export async function getNeedsAttentionAlerts(token: string): Promise<{ items: NeedsAttentionItem[]; count: number }> {
+  const res = await apiFetch(`${API_URL}/notifications/needs-attention`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return { items: [], count: 0 };
+  return safeJson(res);
+}
+
+export async function executeAlertAction(
+  token: string,
+  id: string,
+  actionType: string,
+): Promise<NotificationRecord> {
+  const res = await apiFetch(`${API_URL}/notifications/${id}/action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ actionType }),
+  });
+
+  if (!res.ok) {
+    let errMsg = "Failed to execute alert action";
+    try {
+      const e = await safeJson<{ error?: { message?: string } | string }>(res);
+      if (typeof e.error === "string") errMsg = e.error;
+      else if (e.error?.message) errMsg = e.error.message;
+    } catch {}
+    throw new Error(errMsg);
+  }
+
+  return safeJson(res);
+}
+
+export async function dismissNotificationAlert(token: string, id: string): Promise<NotificationRecord> {
+  const res = await apiFetch(`${API_URL}/notifications/${id}/dismiss`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    let errMsg = "Failed to dismiss alert";
     try {
       const e = await safeJson<{ error?: { message?: string } | string }>(res);
       if (typeof e.error === "string") errMsg = e.error;

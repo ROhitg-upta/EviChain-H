@@ -232,25 +232,36 @@ model EvidenceAnnotation {
 }
 
 model Notification {
-  id           String    @id @default(uuid())
-  userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type         String    // CASE_CREATED, EVIDENCE_UPLOADED, CUSTODY_TRANSFER_RECEIVED, etc.
-  title        String
-  message      String
-  link         String?
-  entityType   String?
-  entityId     String?
-  metadataJson Json?
-  read         Boolean   @default(false)
-  readAt       DateTime?
-  dedupeKey    String?   @unique
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt @default(now())
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           String    // CASE_CREATED, EVIDENCE_UPLOADED, CUSTODY_TRANSFER_RECEIVED, etc.
+  severity       String    @default("INFO") // INFO, SUCCESS, WARNING, HIGH, CRITICAL, SECURITY
+  actionRequired Boolean   @default(false)
+  actionType     String?
+  actionPayload  Json?
+  dismissedAt    DateTime?
+  resolvedAt     DateTime?
+  groupingKey    String?
+  expiresAt      DateTime?
+  title          String
+  message        String
+  link           String?
+  entityType     String?
+  entityId       String?
+  metadataJson   Json?
+  read           Boolean   @default(false)
+  readAt         DateTime?
+  dedupeKey      String?   @unique
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt @default(now())
 
   @@index([userId, read, createdAt])
   @@index([userId, createdAt])
   @@index([userId, type])
+  @@index([userId, read, severity, createdAt])
+  @@index([userId, actionRequired, createdAt])
+  @@index([groupingKey])
 }
 
 model SearchPreset {
