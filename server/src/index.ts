@@ -17,6 +17,7 @@ import usersRoutes from "./routes/users.routes";
 import notificationsRoutes from "./routes/notifications.routes";
 import adminRoutes from "./routes/admin.routes";
 import profileRoutes from "./routes/profile.routes";
+import integrityRoutes from "./routes/integrity.routes";
 import { securityHeaders, createRateLimiter } from "./middleware";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -152,6 +153,7 @@ app.use("/users",         usersRoutes);
 app.use("/notifications", notificationsRoutes);
 app.use("/admin",         adminRoutes);
 app.use("/profile",       profileRoutes);
+app.use("/",              integrityRoutes);
 
 // Structured 404 fallback for unmatched API routes
 app.use((_req: Request, res: Response) => {

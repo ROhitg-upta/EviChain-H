@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../auth-context";
 import { useNotifications } from "@/app/notification-context";
-import { getAuditLogs, getCases, getEvidence } from "@/lib/api";
-import type { CaseRecord, EvidenceRecord, AuditLog } from "@/lib/api";
+import { getAuditLogs, getCases, getEvidence, getIntegrityDashboardSummary } from "@/lib/api";
+import type { CaseRecord, EvidenceRecord, AuditLog, IntegrityDashboardSummary } from "@/lib/api";
 
 type DashboardData = {
   cases: CaseRecord[];
@@ -18,6 +18,7 @@ export default function DashboardPage() {
   const { user, loading: authLoading, accessToken } = useAuth();
   const { needsAttentionQueue, actionRequiredCount } = useNotifications();
   const [data, setData] = useState<DashboardData | null>(null);
+  const [integritySummary, setIntegritySummary] = useState<IntegrityDashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,10 +33,11 @@ export default function DashboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const [cases, evidence, logsRes] = await Promise.all([
+      const [cases, evidence, logsRes, integrityRes] = await Promise.all([
         getCases(accessToken),
         getEvidence(accessToken),
         getAuditLogs(accessToken, { limit: 50 }),
+        getIntegrityDashboardSummary(accessToken).catch(() => null),
       ]);
 
       const logItems = Array.isArray(logsRes) ? logsRes : logsRes.items || [];
@@ -47,6 +49,9 @@ export default function DashboardPage() {
         auditLogs: logItems,
         transfers,
       });
+      if (integrityRes) {
+        setIntegritySummary(integrityRes);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard data");
     } finally {
@@ -344,6 +349,209 @@ export default function DashboardPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </section>
+
+      {/* ── MODULE 15: Forensic Readiness & Evidence Integrity Summary ──────── */}
+      <section
+        style={{
+          background: "var(--surface-raised, #181b20)",
+          border: "1px solid var(--border-default, #23272f)",
+          borderRadius: "8px",
+          padding: "20px 24px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "16px",
+        }}
+        aria-label="Forensic Readiness & Integrity Intelligence"
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "1.25rem" }} aria-hidden="true">🛡️</span>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <h2 style={{ fontSize: "1.125rem", fontWeight: 700, margin: 0, color: "var(--text-primary, #f3f4f6)" }}>
+                  Forensic Readiness & Evidence Integrity Engine
+                </h2>
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    fontFamily: "var(--font-mono, DM Mono)",
+                    padding: "2px 8px",
+                    borderRadius: "10px",
+                    background: "rgba(56, 189, 248, 0.15)",
+                    color: "var(--brand-400, #38bdf8)",
+                    border: "1px solid rgba(56, 189, 248, 0.3)",
+                    letterSpacing: "0.05em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  LIVE INTELLIGENCE
+                </span>
+              </div>
+              <p style={{ margin: "2px 0 0 0", fontSize: "0.85rem", color: "var(--text-secondary, #94a3b8)" }}>
+                Continuous automated cryptographic verification, custody continuity tracking, and court admissibility readiness.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* 4 Forensic Key Metrics */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: "14px",
+        }}>
+          {/* Average Evidence Health */}
+          <div style={{
+            background: "var(--surface-base, #0f1114)",
+            border: "1px solid var(--border-default, #23272f)",
+            borderRadius: "6px",
+            padding: "14px 16px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+          }}>
+            <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+              AVG EVIDENCE HEALTH
+            </span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+              <strong style={{
+                fontSize: "1.75rem",
+                fontWeight: 800,
+                color: (integritySummary?.averageEvidenceScore ?? 100) >= 90
+                  ? "var(--accent-verified, #10b981)"
+                  : (integritySummary?.averageEvidenceScore ?? 100) >= 70
+                  ? "var(--accent-pending, #fbbf24)"
+                  : "var(--accent-danger, #f43f5e)",
+              }}>
+                {integritySummary ? Math.round(integritySummary.averageEvidenceScore) : "—"}
+              </strong>
+              <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>/100</span>
+            </div>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+              {integritySummary?.evidenceAssessedCount ?? 0} exhibits evaluated
+            </span>
+          </div>
+
+          {/* Average Case Readiness */}
+          <div style={{
+            background: "var(--surface-base, #0f1114)",
+            border: "1px solid var(--border-default, #23272f)",
+            borderRadius: "6px",
+            padding: "14px 16px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+          }}>
+            <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+              AVG CASE READINESS
+            </span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+              <strong style={{
+                fontSize: "1.75rem",
+                fontWeight: 800,
+                color: (integritySummary?.averageCaseScore ?? 100) >= 90
+                  ? "var(--accent-verified, #10b981)"
+                  : (integritySummary?.averageCaseScore ?? 100) >= 70
+                  ? "var(--accent-pending, #fbbf24)"
+                  : "var(--accent-danger, #f43f5e)",
+              }}>
+                {integritySummary ? Math.round(integritySummary.averageCaseScore) : "—"}
+              </strong>
+              <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>/100</span>
+            </div>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+              {integritySummary?.casesAssessedCount ?? 0} dossiers evaluated
+            </span>
+          </div>
+
+          {/* Critical Anomalies */}
+          <div style={{
+            background: "var(--surface-base, #0f1114)",
+            border: `1px solid ${(integritySummary?.findingsDistribution.critical ?? 0) > 0 ? "rgba(244, 63, 94, 0.4)" : "var(--border-default, #23272f)"}`,
+            borderRadius: "6px",
+            padding: "14px 16px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+          }}>
+            <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--accent-danger, #f43f5e)", textTransform: "uppercase" }}>
+              CRITICAL BREACHES
+            </span>
+            <strong style={{
+              fontSize: "1.75rem",
+              fontWeight: 800,
+              color: (integritySummary?.findingsDistribution.critical ?? 0) > 0 ? "var(--accent-danger, #f43f5e)" : "var(--accent-verified, #10b981)",
+            }}>
+              {integritySummary?.findingsDistribution.critical ?? 0}
+            </strong>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+              {(integritySummary?.findingsDistribution.critical ?? 0) > 0 ? "Requires Administrator review" : "Zero cryptographic mismatches"}
+            </span>
+          </div>
+
+          {/* High / Medium Discrepancies */}
+          <div style={{
+            background: "var(--surface-base, #0f1114)",
+            border: "1px solid var(--border-default, #23272f)",
+            borderRadius: "6px",
+            padding: "14px 16px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "4px",
+          }}>
+            <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--accent-pending, #fbbf24)", textTransform: "uppercase" }}>
+              HIGH & REVIEW SIGNALS
+            </span>
+            <strong style={{
+              fontSize: "1.75rem",
+              fontWeight: 800,
+              color: ((integritySummary?.findingsDistribution.high ?? 0) + (integritySummary?.findingsDistribution.medium ?? 0)) > 0
+                ? "var(--accent-pending, #fbbf24)"
+                : "var(--accent-verified, #10b981)",
+            }}>
+              {(integritySummary?.findingsDistribution.high ?? 0) + (integritySummary?.findingsDistribution.medium ?? 0)}
+            </strong>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+              Custody gaps & metadata anomalies
+            </span>
+          </div>
+        </div>
+
+        {/* Critical Findings Spotlight if any exist */}
+        {integritySummary && integritySummary.criticalFindings.length > 0 && (
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "8px",
+            padding: "14px",
+            borderRadius: "6px",
+            background: "rgba(244, 63, 94, 0.08)",
+            border: "1px solid rgba(244, 63, 94, 0.3)",
+          }}>
+            <strong style={{ fontSize: "0.85rem", color: "var(--accent-danger, #f43f5e)" }}>
+              Active Critical Integrity Breaches:
+            </strong>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {integritySummary.criticalFindings.slice(0, 3).map((cf) => (
+                <div key={cf.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.8rem" }}>
+                  <span style={{ color: "var(--text-primary)" }}>
+                    {cf.title} {cf.evidence?.name ? `(${cf.evidence.name})` : ""}
+                  </span>
+                  {cf.evidenceId && (
+                    <Link
+                      href={`/evidence/${cf.evidenceId}`}
+                      style={{ color: "var(--accent-danger, #f43f5e)", fontWeight: 700, textDecoration: "underline" }}
+                    >
+                      Remediate →
+                    </Link>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </section>

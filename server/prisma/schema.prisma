@@ -80,6 +80,8 @@ model Case {
 
   evidence Evidence[]
   comments CaseComment[]
+  integrityAssessments IntegrityAssessment[]
+  integrityFindings    IntegrityFinding[]
 
   @@index([status])
   @@index([leadUserId])
@@ -107,8 +109,10 @@ model Evidence {
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
-  custodyEvents CustodyEvent[]
-  annotations   EvidenceAnnotation[]
+  custodyEvents        CustodyEvent[]
+  annotations          EvidenceAnnotation[]
+  integrityAssessments IntegrityAssessment[]
+  integrityFindings    IntegrityFinding[]
 
   @@index([sha256])
   @@index([caseId, createdAt])
@@ -280,5 +284,75 @@ model SystemSetting {
   key       String   @unique
   value     Json
   updatedAt DateTime @updatedAt
+}
+
+model IntegrityAssessment {
+  id               String             @id @default(uuid())
+  caseId           String?
+  case             Case?              @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  evidenceId       String?
+  evidence         Evidence?          @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  assessmentType   String             // "EVIDENCE" | "CASE"
+  overallScore     Int                // 0 - 100
+  overallStatus    String             // "HEALTHY" | "NEEDS_REVIEW" | "AT_RISK" | "CRITICAL"
+  findingsSummary  Json               // { total: number, critical: number, high: number, medium: number, low: number }
+  assessedAt       DateTime           @default(now())
+  assessedByUserId String?
+  source           String             @default("ON_DEMAND") // "ON_DEMAND" | "SCHEDULED" | "EVENT_TRIGGERED"
+  engineVersion    String             @default("1.0.0")
+  createdAt        DateTime           @default(now())
+
+  findings         IntegrityFinding[]
+
+  @@index([caseId, assessedAt])
+  @@index([evidenceId, assessedAt])
+  @@index([assessmentType, assessedAt])
+}
+
+model IntegrityFinding {
+  id                   String               @id @default(uuid())
+  assessmentId         String?
+  assessment           IntegrityAssessment? @relation(fields: [assessmentId], references: [id], onDelete: SetNull)
+  caseId               String?
+  case                 Case?                @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  evidenceId           String?
+  evidence             Evidence?            @relation(fields: [evidenceId], references: [id], onDelete: Cascade)
+  code                 String               // e.g. "HASH_MISMATCH_DETECTED", "CUSTODY_GAP", "MISSING_CUSTODY_ORIGIN"
+  severity             String               // "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
+  title                String
+  description          String
+  remediation          String
+  status               String               @default("OPEN") // "OPEN" | "ACKNOWLEDGED" | "RESOLVED" | "FALSE_POSITIVE"
+  evidenceJson         Json?                // Safe operational metadata (no private storage keys/tokens)
+  detectedAt           DateTime             @default(now())
+  acknowledgedAt       DateTime?
+  acknowledgedByUserId String?
+  resolvedAt           DateTime?
+  resolvedByUserId     String?
+  resolutionNote       String?
+  dedupeKey            String?              @unique
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt @default(now())
+
+  @@index([evidenceId, status])
+  @@index([caseId, status])
+  @@index([severity, status])
+  @@index([detectedAt])
+}
+
+model IntegrityScanJob {
+  id                String    @id @default(uuid())
+  scopeType         String    // "EVIDENCE" | "CASE" | "SYSTEM"
+  scopeId           String?
+  status            String    @default("QUEUED") // "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED"
+  requestedByUserId String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  errorCode         String?
+  summaryJson       Json?
+  createdAt         DateTime  @default(now())
+
+  @@index([scopeType, scopeId])
+  @@index([status, createdAt])
 }
 

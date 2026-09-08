@@ -2167,3 +2167,225 @@ export async function getProfileSecurity(token: string): Promise<SecurityOvervie
 
   return safeJson<SecurityOverview>(res);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Module 15: Evidence Integrity Intelligence Engine Types & Methods
+// ═══════════════════════════════════════════════════════════════════
+
+export type AssessmentStatus = "HEALTHY" | "NEEDS_REVIEW" | "AT_RISK" | "CRITICAL";
+export type FindingSeverity = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+export type FindingStatus = "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
+
+export interface IntegrityAssessmentRecord {
+  id: string;
+  evidenceId?: string | null;
+  caseId?: string | null;
+  assessmentType: "EVIDENCE" | "CASE";
+  overallScore: number;
+  overallStatus: AssessmentStatus;
+  findingsSummary: {
+    total: number;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+  assessedByUserId?: string | null;
+  source: string;
+  engineVersion: string;
+  assessedAt: string;
+}
+
+export interface IntegrityFindingRecord {
+  id: string;
+  assessmentId: string;
+  evidenceId?: string | null;
+  caseId?: string | null;
+  code: string;
+  severity: FindingSeverity;
+  title: string;
+  description: string;
+  remediation: string;
+  evidenceJson?: Record<string, unknown> | null;
+  status: FindingStatus;
+  detectedAt: string;
+  acknowledgedAt?: string | null;
+  resolvedAt?: string | null;
+  resolutionNote?: string | null;
+}
+
+export interface EvidenceIntegrityData {
+  assessment: IntegrityAssessmentRecord | null;
+  findings: IntegrityFindingRecord[];
+  disclaimer: string;
+}
+
+export interface CaseEvidenceBreakdown {
+  id: string;
+  name: string;
+  sha256: string;
+  status: string;
+  score: number | null;
+  assessmentStatus: AssessmentStatus | "NOT_ASSESSED";
+}
+
+export interface CaseIntegrityData {
+  assessment: IntegrityAssessmentRecord | null;
+  findings: IntegrityFindingRecord[];
+  evidenceBreakdown: CaseEvidenceBreakdown[];
+  distribution: {
+    healthy: number;
+    needsReview: number;
+    atRisk: number;
+    critical: number;
+    unassessed: number;
+  };
+  disclaimer: string;
+}
+
+export interface IntegrityDashboardSummary {
+  averageEvidenceScore: number;
+  averageCaseScore: number;
+  evidenceAssessedCount: number;
+  totalEvidenceCount: number;
+  casesAssessedCount: number;
+  totalCasesCount: number;
+  findingsDistribution: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+  criticalFindings: Array<{
+    id: string;
+    title: string;
+    code: string;
+    severity: string;
+    evidenceId?: string | null;
+    caseId?: string | null;
+    detectedAt: string;
+    evidence?: { id: string; name: string } | null;
+    case?: { id: string; title: string } | null;
+  }>;
+}
+
+export async function getEvidenceIntegrity(evidenceId: string, token: string): Promise<EvidenceIntegrityData> {
+  const res = await apiFetch(`${API_URL}/evidence/${evidenceId}/integrity`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to fetch evidence integrity");
+  }
+  return safeJson<EvidenceIntegrityData>(res);
+}
+
+export async function assessEvidenceIntegrity(evidenceId: string, token: string): Promise<EvidenceIntegrityData> {
+  const res = await apiFetch(`${API_URL}/evidence/${evidenceId}/integrity/assess`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to execute evidence assessment");
+  }
+  return safeJson<EvidenceIntegrityData>(res);
+}
+
+export async function getCaseIntegrity(caseId: string, token: string): Promise<CaseIntegrityData> {
+  const res = await apiFetch(`${API_URL}/cases/${caseId}/integrity`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to fetch case integrity readiness");
+  }
+  return safeJson<CaseIntegrityData>(res);
+}
+
+export async function assessCaseIntegrity(caseId: string, token: string): Promise<CaseIntegrityData> {
+  const res = await apiFetch(`${API_URL}/cases/${caseId}/integrity/assess`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to execute case assessment");
+  }
+  return safeJson<CaseIntegrityData>(res);
+}
+
+export async function getIntegrityFindings(
+  token: string,
+  params?: { status?: string; severity?: string; caseId?: string; evidenceId?: string; page?: number; limit?: number },
+): Promise<{ findings: IntegrityFindingRecord[]; total: number; page: number; limit: number }> {
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  if (params?.severity) query.set("severity", params.severity);
+  if (params?.caseId) query.set("caseId", params.caseId);
+  if (params?.evidenceId) query.set("evidenceId", params.evidenceId);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+
+  const url = `${API_URL}/integrity/findings${query.toString() ? `?${query.toString()}` : ""}`;
+  const res = await apiFetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to fetch integrity findings");
+  }
+  return safeJson(res);
+}
+
+export async function acknowledgeIntegrityFinding(findingId: string, token: string): Promise<IntegrityFindingRecord> {
+  const res = await apiFetch(`${API_URL}/integrity/findings/${findingId}/acknowledge`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to acknowledge finding");
+  }
+  return safeJson<IntegrityFindingRecord>(res);
+}
+
+export async function resolveIntegrityFinding(
+  findingId: string,
+  resolutionNote: string,
+  token: string,
+): Promise<IntegrityFindingRecord> {
+  const res = await apiFetch(`${API_URL}/integrity/findings/${findingId}/resolve`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ resolutionNote }),
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to resolve finding");
+  }
+  return safeJson<IntegrityFindingRecord>(res);
+}
+
+export async function getIntegrityDashboardSummary(token: string): Promise<IntegrityDashboardSummary> {
+  const res = await apiFetch(`${API_URL}/integrity/dashboard-summary`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to fetch dashboard summary");
+  }
+  return safeJson<IntegrityDashboardSummary>(res);
+}
+

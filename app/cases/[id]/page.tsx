@@ -6,7 +6,8 @@ import { useAuth } from "../../auth-context";
 import { useNotifications } from "../../notification-context";
 import {
   getCaseById, updateCase, getCaseComments, createCaseComment, downloadCaseSummaryPDF, uploadCaseEvidence,
-  type CaseDetail, type EvidenceRecord, type CaseComment,
+  getCaseIntegrity, assessCaseIntegrity,
+  type CaseDetail, type EvidenceRecord, type CaseComment, type CaseIntegrityData,
 } from "@/lib/api";
 import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
@@ -60,8 +61,14 @@ export default function CaseDetailPage() {
   const [updating, setUpdating] = useState(false);
   const [updateError, setUpdateError] = useState("");
   const [updateSuccess, setUpdateSuccess] = useState(false);
-  const [activeTab, setActiveTab] = useState<"overview" | "activity" | "discussion">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "activity" | "discussion" | "integrity">("overview");
   const [exportingPdf, setExportingPdf] = useState(false);
+
+  // Module 15: Case Forensic Readiness State
+  const [integrityData, setIntegrityData] = useState<CaseIntegrityData | null>(null);
+  const [integrityLoading, setIntegrityLoading] = useState(false);
+  const [integrityAssessing, setIntegrityAssessing] = useState(false);
+  const [integrityError, setIntegrityError] = useState("");
 
   const loadCase = useCallback(() => {
     if (!accessToken || !id) return;
@@ -78,9 +85,41 @@ export default function CaseDetailPage() {
       .finally(() => setFetching(false));
   }, [accessToken, id]);
 
+  const loadCaseIntegrity = useCallback(() => {
+    if (!accessToken || !id) return;
+    setIntegrityLoading(true);
+    setIntegrityError("");
+    getCaseIntegrity(id, accessToken)
+      .then(setIntegrityData)
+      .catch((err) => setIntegrityError(err instanceof Error ? err.message : "Failed to load case readiness"))
+      .finally(() => setIntegrityLoading(false));
+  }, [accessToken, id]);
+
   useEffect(() => {
     loadCase();
   }, [loadCase]);
+
+  useEffect(() => {
+    if (caseData) {
+      loadCaseIntegrity();
+    }
+  }, [caseData, loadCaseIntegrity]);
+
+  async function handleAssessCaseIntegrity() {
+    if (!accessToken || !id) return;
+    setIntegrityAssessing(true);
+    setIntegrityError("");
+    try {
+      const data = await assessCaseIntegrity(id, accessToken);
+      setIntegrityData(data);
+      toast({ type: "success", title: "Forensic Readiness Assessment Complete" });
+    } catch (err: unknown) {
+      setIntegrityError(err instanceof Error ? err.message : "Case assessment failed");
+      toast({ type: "error", title: err instanceof Error ? err.message : "Case assessment failed" });
+    } finally {
+      setIntegrityAssessing(false);
+    }
+  }
 
   async function handleExportPdf() {
     if (!accessToken || !caseData) return;
@@ -392,6 +431,49 @@ export default function CaseDetailPage() {
         >
           <span>Discussion & Notes</span>
         </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "integrity"}
+          onClick={() => setActiveTab("integrity")}
+          style={{
+            padding: "10px 16px",
+            background: "none",
+            border: "none",
+            borderBottom: activeTab === "integrity" ? "2px solid var(--brand-500)" : "2px solid transparent",
+            color: activeTab === "integrity" ? "var(--text-primary)" : "var(--text-secondary)",
+            fontWeight: activeTab === "integrity" ? 700 : 500,
+            fontSize: "var(--text-sm)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span>Forensic Readiness</span>
+          {integrityData?.assessment && (
+            <span style={{
+              fontSize: 11,
+              padding: "1px 8px",
+              borderRadius: 10,
+              fontWeight: 700,
+              fontFamily: "var(--font-mono)",
+              background: integrityData.assessment.overallScore >= 90
+                ? "rgba(16, 185, 129, 0.2)"
+                : integrityData.assessment.overallScore >= 70
+                ? "rgba(251, 191, 36, 0.2)"
+                : "rgba(244, 63, 94, 0.2)",
+              color: integrityData.assessment.overallScore >= 90
+                ? "var(--accent-verified, #10b981)"
+                : integrityData.assessment.overallScore >= 70
+                ? "var(--accent-pending, #fbbf24)"
+                : "var(--accent-danger, #f43f5e)",
+            }}>
+              {integrityData.assessment.overallScore}/100
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Tab: Overview & Evidence Grid */}
@@ -598,6 +680,405 @@ export default function CaseDetailPage() {
       {/* Tab: Discussion & Notes */}
       {activeTab === "discussion" && (
         <CaseCommentsSection caseId={id} />
+      )}
+
+      {/* ── MODULE 15: Case Forensic Readiness Command Center ── */}
+      {activeTab === "integrity" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 24, marginBottom: 32 }}>
+          {/* Header & Controls */}
+          <div style={{
+            background: "var(--surface-raised, #181b20)",
+            border: "1px solid var(--border-default, #23272f)",
+            borderRadius: "8px",
+            padding: "24px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            flexWrap: "wrap",
+            gap: 16,
+          }}>
+            <div>
+              <p className="eyebrow" style={{ color: "var(--brand-500, #38bdf8)", margin: "0 0 6px 0", fontSize: "0.75rem", letterSpacing: "0.08em" }}>
+                CASE FORENSIC READINESS COMMAND CENTER
+              </p>
+              <h2 style={{ margin: 0, fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary, #f3f4f6)" }}>
+                Court Admissibility & Evidence Integrity
+              </h2>
+              <p style={{ margin: "6px 0 0 0", fontSize: "0.9rem", color: "var(--text-secondary, #9ca3af)", maxWidth: 650 }}>
+                Aggregated cryptographic readiness assessment across all child evidence artifacts, chain of custody continuity, and vault storage state.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-primary btn-md"
+              onClick={handleAssessCaseIntegrity}
+              disabled={integrityAssessing}
+              style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+            >
+              {integrityAssessing ? (
+                <>
+                  <span className="loading-spinner" />
+                  <span>Scanning Case Artifacts…</span>
+                </>
+              ) : (
+                <>
+                  <span aria-hidden="true">🛡️</span>
+                  <span>Assess Forensic Readiness</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {integrityError && (
+            <div style={{
+              padding: "12px 16px",
+              borderRadius: "6px",
+              background: "rgba(244, 63, 94, 0.12)",
+              border: "1px solid rgba(244, 63, 94, 0.3)",
+              color: "var(--accent-danger, #f43f5e)",
+              fontSize: "0.9rem",
+            }} role="alert">
+              {integrityError}
+            </div>
+          )}
+
+          {/* Critical Non-Negotiable Override Rule Banner */}
+          {integrityData && integrityData.distribution.critical > 0 && (
+            <div style={{
+              padding: "16px 20px",
+              borderRadius: "8px",
+              background: "rgba(244, 63, 94, 0.1)",
+              border: "1px solid rgba(244, 63, 94, 0.4)",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 14,
+            }} role="alert">
+              <span style={{ fontSize: "1.5rem" }} aria-hidden="true">⚠️</span>
+              <div>
+                <strong style={{ color: "var(--accent-danger, #f43f5e)", fontSize: "0.95rem", display: "block", marginBottom: 4 }}>
+                  CRITICAL ANOMALY OVERRIDE ENFORCED
+                </strong>
+                <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-primary)", lineHeight: 1.5 }}>
+                  {integrityData.distribution.critical} exhibit(s) in this case triggered a <strong>CRITICAL</strong> finding (cryptographic hash mismatch or vault storage unavailability). By forensic integrity governance rules, this case is capped at <strong>{integrityData.assessment?.overallStatus ?? "AT_RISK"}</strong> status and cannot be declared court-ready until all critical findings are formally remediated and resolved by an Administrator.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Readiness Score & Metrics Cards */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gap: 16,
+          }}>
+            {/* Overall Score */}
+            <div style={{
+              background: "var(--surface-raised, #181b20)",
+              border: "1px solid var(--border-default, #23272f)",
+              borderRadius: "8px",
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}>
+              <span className="eyebrow" style={{ color: "var(--text-secondary)" }}>READINESS SCORE</span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <strong style={{
+                  fontSize: "2.75rem",
+                  fontWeight: 800,
+                  lineHeight: 1,
+                  color: !integrityData?.assessment
+                    ? "var(--text-secondary)"
+                    : integrityData.assessment.overallScore >= 90
+                    ? "var(--accent-verified, #10b981)"
+                    : integrityData.assessment.overallScore >= 70
+                    ? "var(--accent-pending, #fbbf24)"
+                    : integrityData.assessment.overallScore >= 40
+                    ? "#f97316"
+                    : "var(--accent-danger, #f43f5e)",
+                }}>
+                  {integrityData?.assessment ? integrityData.assessment.overallScore : "—"}
+                </strong>
+                <span style={{ fontSize: "1.1rem", color: "var(--text-secondary)" }}>/100</span>
+              </div>
+              <span style={{
+                alignSelf: "flex-start",
+                padding: "2px 10px",
+                borderRadius: "12px",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+                fontFamily: "var(--font-mono)",
+                textTransform: "uppercase",
+                background: !integrityData?.assessment
+                  ? "rgba(255, 255, 255, 0.05)"
+                  : integrityData.assessment.overallStatus === "HEALTHY"
+                  ? "rgba(16, 185, 129, 0.15)"
+                  : integrityData.assessment.overallStatus === "NEEDS_REVIEW"
+                  ? "rgba(251, 191, 36, 0.15)"
+                  : integrityData.assessment.overallStatus === "AT_RISK"
+                  ? "rgba(249, 115, 22, 0.15)"
+                  : "rgba(244, 63, 94, 0.15)",
+                color: !integrityData?.assessment
+                  ? "var(--text-secondary)"
+                  : integrityData.assessment.overallStatus === "HEALTHY"
+                  ? "var(--accent-verified, #10b981)"
+                  : integrityData.assessment.overallStatus === "NEEDS_REVIEW"
+                  ? "var(--accent-pending, #fbbf24)"
+                  : integrityData.assessment.overallStatus === "AT_RISK"
+                  ? "#f97316"
+                  : "var(--accent-danger, #f43f5e)",
+              }}>
+                {integrityData?.assessment?.overallStatus ?? "UNASSESSED"}
+              </span>
+            </div>
+
+            {/* Critical Exhibits */}
+            <div style={{
+              background: "var(--surface-raised, #181b20)",
+              border: "1px solid var(--border-default, #23272f)",
+              borderRadius: "8px",
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}>
+              <span className="eyebrow" style={{ color: "var(--accent-danger, #f43f5e)" }}>CRITICAL ANOMALIES</span>
+              <strong style={{ fontSize: "2.75rem", fontWeight: 800, lineHeight: 1, color: "var(--accent-danger, #f43f5e)" }}>
+                {integrityData?.distribution.critical ?? 0}
+              </strong>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                Evidence exhibits requiring immediate escalation
+              </span>
+            </div>
+
+            {/* At Risk & Needs Review */}
+            <div style={{
+              background: "var(--surface-raised, #181b20)",
+              border: "1px solid var(--border-default, #23272f)",
+              borderRadius: "8px",
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}>
+              <span className="eyebrow" style={{ color: "var(--accent-pending, #fbbf24)" }}>AT RISK / REVIEW</span>
+              <strong style={{ fontSize: "2.75rem", fontWeight: 800, lineHeight: 1, color: "var(--accent-pending, #fbbf24)" }}>
+                {(integrityData?.distribution.atRisk ?? 0) + (integrityData?.distribution.needsReview ?? 0)}
+              </strong>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                {integrityData?.distribution.atRisk ?? 0} at risk · {integrityData?.distribution.needsReview ?? 0} needs review
+              </span>
+            </div>
+
+            {/* Verified Healthy */}
+            <div style={{
+              background: "var(--surface-raised, #181b20)",
+              border: "1px solid var(--border-default, #23272f)",
+              borderRadius: "8px",
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}>
+              <span className="eyebrow" style={{ color: "var(--accent-verified, #10b981)" }}>VERIFIED HEALTHY</span>
+              <strong style={{ fontSize: "2.75rem", fontWeight: 800, lineHeight: 1, color: "var(--accent-verified, #10b981)" }}>
+                {integrityData?.distribution.healthy ?? 0}
+              </strong>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                Exhibit integrity fully verified
+              </span>
+            </div>
+          </div>
+
+          {/* Child Evidence Breakdown Table */}
+          <div style={{
+            background: "var(--surface-raised, #181b20)",
+            border: "1px solid var(--border-default, #23272f)",
+            borderRadius: "8px",
+            padding: "20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                  Evidence Exhibits Integrity Telemetry
+                </h3>
+                <p style={{ margin: "4px 0 0 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                  Cryptographic verification status for each exhibit tied to this case dossier.
+                </p>
+              </div>
+            </div>
+
+            {(!integrityData || integrityData.evidenceBreakdown.length === 0) ? (
+              <div style={{ padding: "24px", textAlign: "center", color: "var(--text-secondary)" }}>
+                {evidence.length === 0 ? "No evidence exhibits registered to this case yet." : "Click 'Assess Forensic Readiness' to scan all exhibits."}
+              </div>
+            ) : (
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid var(--border-default, #23272f)", textAlign: "left" }}>
+                      <th style={{ padding: "10px 12px", color: "var(--text-secondary)", fontWeight: 600 }}>EXHIBIT</th>
+                      <th style={{ padding: "10px 12px", color: "var(--text-secondary)", fontWeight: 600 }}>SHA-256 FINGERPRINT</th>
+                      <th style={{ padding: "10px 12px", color: "var(--text-secondary)", fontWeight: 600 }}>RECORD STATUS</th>
+                      <th style={{ padding: "10px 12px", color: "var(--text-secondary)", fontWeight: 600 }}>HEALTH SCORE</th>
+                      <th style={{ padding: "10px 12px", color: "var(--text-secondary)", fontWeight: 600 }}>INTEGRITY STATUS</th>
+                      <th style={{ padding: "10px 12px", color: "var(--text-secondary)", fontWeight: 600, textAlign: "right" }}>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {integrityData.evidenceBreakdown.map((ev) => (
+                      <tr key={ev.id} style={{ borderBottom: "1px solid rgba(255, 255, 255, 0.04)" }}>
+                        <td style={{ padding: "12px", color: "var(--text-primary)", fontWeight: 600 }}>
+                          {ev.name}
+                        </td>
+                        <td style={{ padding: "12px", fontFamily: "var(--font-mono)", fontSize: "0.75rem", color: "var(--text-secondary)" }} title={ev.sha256}>
+                          {ev.sha256 ? `${ev.sha256.slice(0, 12)}…${ev.sha256.slice(-8)}` : "—"}
+                        </td>
+                        <td style={{ padding: "12px" }}>
+                          <span style={{
+                            padding: "2px 8px",
+                            borderRadius: "4px",
+                            fontSize: "0.7rem",
+                            fontWeight: 600,
+                            fontFamily: "var(--font-mono)",
+                            background: "rgba(255, 255, 255, 0.05)",
+                            color: "var(--text-primary)",
+                          }}>
+                            {ev.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: "12px", fontWeight: 700 }}>
+                          {ev.score !== null ? (
+                            <span style={{
+                              color: ev.score >= 90 ? "var(--accent-verified, #10b981)" : ev.score >= 70 ? "var(--accent-pending, #fbbf24)" : "var(--accent-danger, #f43f5e)",
+                            }}>
+                              {ev.score}/100
+                            </span>
+                          ) : (
+                            <span style={{ color: "var(--text-secondary)" }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ padding: "12px" }}>
+                          <span style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                            padding: "2px 8px",
+                            borderRadius: "10px",
+                            fontSize: "0.7rem",
+                            fontWeight: 700,
+                            fontFamily: "var(--font-mono)",
+                            background: ev.assessmentStatus === "HEALTHY"
+                              ? "rgba(16, 185, 129, 0.15)"
+                              : ev.assessmentStatus === "NEEDS_REVIEW"
+                              ? "rgba(251, 191, 36, 0.15)"
+                              : ev.assessmentStatus === "AT_RISK"
+                              ? "rgba(249, 115, 22, 0.15)"
+                              : ev.assessmentStatus === "CRITICAL"
+                              ? "rgba(244, 63, 94, 0.15)"
+                              : "rgba(255, 255, 255, 0.05)",
+                            color: ev.assessmentStatus === "HEALTHY"
+                              ? "var(--accent-verified, #10b981)"
+                              : ev.assessmentStatus === "NEEDS_REVIEW"
+                              ? "var(--accent-pending, #fbbf24)"
+                              : ev.assessmentStatus === "AT_RISK"
+                              ? "#f97316"
+                              : ev.assessmentStatus === "CRITICAL"
+                              ? "var(--accent-danger, #f43f5e)"
+                              : "var(--text-secondary)",
+                          }}>
+                            <span style={{ width: 5, height: 5, borderRadius: "50%", background: "currentColor" }} />
+                            {ev.assessmentStatus}
+                          </span>
+                        </td>
+                        <td style={{ padding: "12px", textAlign: "right" }}>
+                          <a
+                            href={`/evidence/${ev.id}`}
+                            className="btn btn-secondary btn-sm"
+                            style={{ fontSize: "0.75rem", padding: "3px 10px" }}
+                          >
+                            Inspect Exhibit →
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Case Findings List */}
+          {integrityData && integrityData.findings.length > 0 && (
+            <div style={{
+              background: "var(--surface-raised, #181b20)",
+              border: "1px solid var(--border-default, #23272f)",
+              borderRadius: "8px",
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}>
+              <h3 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                Case-Level Integrity Findings ({integrityData.findings.length})
+              </h3>
+              {integrityData.findings.map((f) => (
+                <div
+                  key={f.id}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: "6px",
+                    background: "rgba(255, 255, 255, 0.02)",
+                    border: "1px solid var(--border-default, #23272f)",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{
+                      padding: "2px 8px",
+                      borderRadius: "4px",
+                      fontSize: "0.7rem",
+                      fontWeight: 700,
+                      fontFamily: "var(--font-mono)",
+                      background: "rgba(251, 191, 36, 0.15)",
+                      color: "var(--accent-pending, #fbbf24)",
+                    }}>
+                      {f.severity}
+                    </span>
+                    <strong style={{ color: "var(--text-primary)" }}>{f.title}</strong>
+                    <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)" }}>
+                      [{f.code}]
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary)" }}>{f.description}</p>
+                  <div style={{ fontSize: "0.8rem", color: "var(--brand-400)" }}>
+                    <strong>Remediation: </strong>{f.remediation}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Forensic Notice */}
+          <div style={{
+            padding: "10px 14px",
+            borderRadius: "6px",
+            background: "rgba(255, 255, 255, 0.02)",
+            border: "1px dashed var(--border-default, #23272f)",
+            fontSize: "0.75rem",
+            color: "var(--text-secondary, #9ca3af)",
+            lineHeight: 1.4,
+          }}>
+            <strong style={{ color: "var(--text-primary)" }}>Forensic Notice: </strong>
+            {integrityData?.disclaimer ?? "Operational forensic readiness assessment based on EviChain records — does not constitute a legal admissibility determination."}
+          </div>
+        </div>
       )}
 
       {/* ── Direct Evidence Upload Modal (Dark Themed) ──────────────── */}

@@ -10,10 +10,16 @@ import {
   downloadEvidenceCertificate,
   transferEvidenceCustody,
   getAllUsers,
+  getEvidenceIntegrity,
+  assessEvidenceIntegrity,
+  acknowledgeIntegrityFinding,
+  resolveIntegrityFinding,
   type EvidenceRecord,
   type CustodyEvent,
   type PublicVerifyResult,
   type UserRecord,
+  type EvidenceIntegrityData,
+  type IntegrityFindingRecord,
 } from "@/lib/api";
 import WorkspaceShell from "@/app/components/ui/workspace-shell";
 
@@ -121,6 +127,15 @@ export default function EvidenceDetailPage() {
   const [transferError, setTransferError] = useState("");
   const [transferSuccess, setTransferSuccess] = useState("");
 
+  // Module 15: Evidence Integrity Intelligence Engine State
+  const [integrityData, setIntegrityData] = useState<EvidenceIntegrityData | null>(null);
+  const [integrityLoading, setIntegrityLoading] = useState(false);
+  const [integrityAssessing, setIntegrityAssessing] = useState(false);
+  const [integrityError, setIntegrityError] = useState("");
+  const [resolveModalFinding, setResolveModalFinding] = useState<IntegrityFindingRecord | null>(null);
+  const [resolutionNote, setResolutionNote] = useState("");
+  const [resolveSubmitting, setResolveSubmitting] = useState(false);
+  const [resolveError, setResolveError] = useState("");
 
   useEffect(() => {
     if (!authLoading && !user) window.location.replace("/login");
@@ -138,9 +153,66 @@ export default function EvidenceDetailPage() {
       .finally(() => setFetching(false));
   }, [accessToken, id]);
 
+  const loadIntegrity = useCallback(() => {
+    if (!accessToken || !id) return;
+    setIntegrityLoading(true);
+    setIntegrityError("");
+    getEvidenceIntegrity(id, accessToken)
+      .then(setIntegrityData)
+      .catch((err) => setIntegrityError(err instanceof Error ? err.message : "Failed to load integrity report"))
+      .finally(() => setIntegrityLoading(false));
+  }, [accessToken, id]);
+
   useEffect(() => {
     loadEvidence();
   }, [loadEvidence]);
+
+  useEffect(() => {
+    if (record) {
+      loadIntegrity();
+    }
+  }, [record, loadIntegrity]);
+
+  async function handleAssessIntegrity() {
+    if (!accessToken || !id) return;
+    setIntegrityAssessing(true);
+    setIntegrityError("");
+    try {
+      const data = await assessEvidenceIntegrity(id, accessToken);
+      setIntegrityData(data);
+    } catch (err: unknown) {
+      setIntegrityError(err instanceof Error ? err.message : "Assessment failed");
+    } finally {
+      setIntegrityAssessing(false);
+    }
+  }
+
+  async function handleAcknowledgeFinding(findingId: string) {
+    if (!accessToken) return;
+    try {
+      await acknowledgeIntegrityFinding(findingId, accessToken);
+      loadIntegrity();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Failed to acknowledge finding");
+    }
+  }
+
+  async function handleResolveFindingSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!accessToken || !resolveModalFinding || !resolutionNote.trim()) return;
+    setResolveSubmitting(true);
+    setResolveError("");
+    try {
+      await resolveIntegrityFinding(resolveModalFinding.id, resolutionNote.trim(), accessToken);
+      setResolveModalFinding(null);
+      setResolutionNote("");
+      loadIntegrity();
+    } catch (err: unknown) {
+      setResolveError(err instanceof Error ? err.message : "Failed to resolve finding");
+    } finally {
+      setResolveSubmitting(false);
+    }
+  }
 
   // Load users when opening transfer modal
   useEffect(() => {
@@ -482,6 +554,371 @@ export default function EvidenceDetailPage() {
             )}
           </div>
 
+          {/* ── MODULE 15: Evidence Integrity Intelligence Report ── */}
+          <div className="detail-card ev-integrity-section" style={{
+            background: "var(--surface-raised, #181b20)",
+            border: "1px solid var(--border-default, #23272f)",
+            borderRadius: "8px",
+            padding: "20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
+              <div>
+                <p className="eyebrow" style={{ color: "var(--brand-500, #38bdf8)", margin: "0 0 4px 0", fontSize: "0.75rem", letterSpacing: "0.08em" }}>
+                  FORENSIC INTELLIGENCE ENGINE
+                </p>
+                <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary, #f3f4f6)" }}>
+                  Evidence Integrity Report
+                </h2>
+                <p style={{ margin: "4px 0 0 0", fontSize: "0.85rem", color: "var(--text-secondary, #9ca3af)" }}>
+                  Automated deterministic verification of cryptographic hash, custody origin, and vault storage continuity.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="button button-secondary"
+                onClick={handleAssessIntegrity}
+                disabled={integrityAssessing || isAuditor}
+                title={isAuditor ? "Auditors have read-only inspection access" : "Run immediate cryptographic integrity assessment"}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 14px",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  borderRadius: "6px",
+                }}
+              >
+                {integrityAssessing ? (
+                  <>
+                    <span className="loading-spinner" />
+                    <span>Evaluating…</span>
+                  </>
+                ) : (
+                  <>
+                    <span aria-hidden="true">🛡️</span>
+                    <span>Assess Integrity</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {integrityError && (
+              <div style={{
+                padding: "10px 14px",
+                borderRadius: "6px",
+                background: "rgba(244, 63, 94, 0.12)",
+                border: "1px solid rgba(244, 63, 94, 0.3)",
+                color: "var(--accent-danger, #f43f5e)",
+                fontSize: "0.85rem",
+              }} role="alert">
+                {integrityError}
+              </div>
+            )}
+
+            {/* Score & Status Display */}
+            {integrityLoading && !integrityData ? (
+              <div style={{ padding: "16px 0", color: "var(--text-secondary)" }}>
+                Loading integrity telemetry…
+              </div>
+            ) : (
+              <div>
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  padding: "16px",
+                  borderRadius: "6px",
+                  background: "var(--surface-base, #0f1114)",
+                  border: "1px solid var(--border-default, #23272f)",
+                  flexWrap: "wrap",
+                }}>
+                  <div style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minWidth: "110px",
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    background: "rgba(255, 255, 255, 0.03)",
+                    border: "1px solid rgba(255, 255, 255, 0.06)",
+                  }}>
+                    <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+                      HEALTH SCORE
+                    </span>
+                    <strong style={{
+                      fontSize: "2rem",
+                      fontWeight: 800,
+                      lineHeight: 1.1,
+                      color: !integrityData?.assessment
+                        ? "var(--text-secondary)"
+                        : integrityData.assessment.overallScore >= 90
+                        ? "var(--accent-verified, #10b981)"
+                        : integrityData.assessment.overallScore >= 70
+                        ? "var(--accent-pending, #fbbf24)"
+                        : integrityData.assessment.overallScore >= 40
+                        ? "#f97316"
+                        : "var(--accent-danger, #f43f5e)",
+                    }}>
+                      {integrityData?.assessment ? `${integrityData.assessment.overallScore}` : "—"}
+                      <span style={{ fontSize: "1rem", fontWeight: 500, color: "var(--text-secondary)" }}>/100</span>
+                    </strong>
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: "180px", display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "4px 12px",
+                        borderRadius: "20px",
+                        fontSize: "0.75rem",
+                        fontWeight: 700,
+                        fontFamily: "var(--font-mono)",
+                        letterSpacing: "0.05em",
+                        textTransform: "uppercase",
+                        background: !integrityData?.assessment
+                          ? "rgba(255, 255, 255, 0.05)"
+                          : integrityData.assessment.overallStatus === "HEALTHY"
+                          ? "rgba(16, 185, 129, 0.15)"
+                          : integrityData.assessment.overallStatus === "NEEDS_REVIEW"
+                          ? "rgba(251, 191, 36, 0.15)"
+                          : integrityData.assessment.overallStatus === "AT_RISK"
+                          ? "rgba(249, 115, 22, 0.15)"
+                          : "rgba(244, 63, 94, 0.15)",
+                        color: !integrityData?.assessment
+                          ? "var(--text-secondary)"
+                          : integrityData.assessment.overallStatus === "HEALTHY"
+                          ? "var(--accent-verified, #10b981)"
+                          : integrityData.assessment.overallStatus === "NEEDS_REVIEW"
+                          ? "var(--accent-pending, #fbbf24)"
+                          : integrityData.assessment.overallStatus === "AT_RISK"
+                          ? "#f97316"
+                          : "var(--accent-danger, #f43f5e)",
+                        border: `1px solid ${
+                          !integrityData?.assessment
+                            ? "var(--border-default)"
+                            : integrityData.assessment.overallStatus === "HEALTHY"
+                            ? "rgba(16, 185, 129, 0.3)"
+                            : integrityData.assessment.overallStatus === "NEEDS_REVIEW"
+                            ? "rgba(251, 191, 36, 0.3)"
+                            : integrityData.assessment.overallStatus === "AT_RISK"
+                            ? "rgba(249, 115, 22, 0.3)"
+                            : "rgba(244, 63, 94, 0.3)"
+                        }`,
+                      }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor" }} />
+                        {integrityData?.assessment?.overallStatus ?? "NOT EVALUATED"}
+                      </span>
+
+                      {integrityData?.assessment?.assessedAt && (
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                          Last scan: {fmtRelative(integrityData.assessment.assessedAt)} (v{integrityData.assessment.engineVersion})
+                        </span>
+                      )}
+                    </div>
+
+                    <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+                      {integrityData?.assessment?.overallStatus === "HEALTHY" && "Cryptographic fingerprint and custody timeline are fully synchronized."}
+                      {integrityData?.assessment?.overallStatus === "NEEDS_REVIEW" && "Minor metadata or verification gaps detected. Exhibit requires review."}
+                      {integrityData?.assessment?.overallStatus === "AT_RISK" && "Significant anomalies or custody transfer continuity concerns detected."}
+                      {integrityData?.assessment?.overallStatus === "CRITICAL" && "CRITICAL ANOMALY: Possible hash mismatch or physical storage absence detected."}
+                      {!integrityData?.assessment && "No formal forensic assessment recorded for this evidence artifact yet."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Findings Section */}
+                {integrityData && integrityData.findings.length > 0 ? (
+                  <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        Active Findings ({integrityData.findings.length})
+                      </span>
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {integrityData.findings.map((f) => (
+                        <div
+                          key={f.id}
+                          style={{
+                            padding: "12px 14px",
+                            borderRadius: "6px",
+                            background: f.status === "RESOLVED" ? "rgba(255, 255, 255, 0.02)" : "rgba(255, 255, 255, 0.04)",
+                            border: `1px solid ${
+                              f.status === "RESOLVED"
+                                ? "var(--border-default)"
+                                : f.severity === "CRITICAL"
+                                ? "rgba(244, 63, 94, 0.4)"
+                                : f.severity === "HIGH"
+                                ? "rgba(249, 115, 22, 0.4)"
+                                : f.severity === "MEDIUM"
+                                ? "rgba(251, 191, 36, 0.3)"
+                                : "rgba(148, 163, 184, 0.3)"
+                            }`,
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 8,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "0.7rem",
+                                fontWeight: 700,
+                                fontFamily: "var(--font-mono)",
+                                textTransform: "uppercase",
+                                background: f.severity === "CRITICAL"
+                                  ? "rgba(244, 63, 94, 0.15)"
+                                  : f.severity === "HIGH"
+                                  ? "rgba(249, 115, 22, 0.15)"
+                                  : f.severity === "MEDIUM"
+                                  ? "rgba(251, 191, 36, 0.15)"
+                                  : "rgba(148, 163, 184, 0.15)",
+                                color: f.severity === "CRITICAL"
+                                  ? "var(--accent-danger, #f43f5e)"
+                                  : f.severity === "HIGH"
+                                  ? "#f97316"
+                                  : f.severity === "MEDIUM"
+                                  ? "var(--accent-pending, #fbbf24)"
+                                  : "#94a3b8",
+                                border: `1px solid currentColor`,
+                              }}>
+                                {f.severity}
+                              </span>
+                              <strong style={{ fontSize: "0.9rem", color: "var(--text-primary)" }}>
+                                {f.title}
+                              </strong>
+                              <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem", color: "var(--text-secondary)" }}>
+                                [{f.code}]
+                              </span>
+                            </div>
+
+                            <span style={{
+                              fontSize: "0.7rem",
+                              fontWeight: 600,
+                              padding: "2px 8px",
+                              borderRadius: "12px",
+                              fontFamily: "var(--font-mono)",
+                              background: f.status === "RESOLVED"
+                                ? "rgba(16, 185, 129, 0.15)"
+                                : f.status === "ACKNOWLEDGED"
+                                ? "rgba(56, 189, 248, 0.15)"
+                                : "rgba(251, 191, 36, 0.15)",
+                              color: f.status === "RESOLVED"
+                                ? "var(--accent-verified, #10b981)"
+                                : f.status === "ACKNOWLEDGED"
+                                ? "var(--brand-400, #38bdf8)"
+                                : "var(--accent-pending, #fbbf24)",
+                            }}>
+                              {f.status}
+                            </span>
+                          </div>
+
+                          <p style={{ margin: 0, fontSize: "0.825rem", color: "var(--text-secondary)" }}>
+                            {f.description}
+                          </p>
+
+                          <div style={{
+                            padding: "8px 10px",
+                            borderRadius: "4px",
+                            background: "rgba(0, 0, 0, 0.2)",
+                            borderLeft: "3px solid var(--brand-500, #38bdf8)",
+                            fontSize: "0.8rem",
+                            color: "var(--text-secondary)",
+                          }}>
+                            <strong style={{ color: "var(--text-primary)" }}>Remediation Guidance: </strong>
+                            {f.remediation}
+                          </div>
+
+                          {f.status === "RESOLVED" && f.resolutionNote && (
+                            <div style={{ fontSize: "0.75rem", color: "var(--accent-verified)", fontStyle: "italic" }}>
+                              Resolved note: {f.resolutionNote}
+                            </div>
+                          )}
+
+                          {/* Action Controls for Finding */}
+                          {!isAuditor && f.status !== "RESOLVED" && (
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end", marginTop: 4 }}>
+                              {f.status === "OPEN" && (
+                                <button
+                                  type="button"
+                                  className="button button-secondary small-button"
+                                  onClick={() => handleAcknowledgeFinding(f.id)}
+                                  style={{ fontSize: "0.75rem", padding: "3px 10px" }}
+                                >
+                                  Acknowledge
+                                </button>
+                              )}
+
+                              {f.code === "HASH_MISMATCH_DETECTED" && !isAdmin ? (
+                                <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                                  Admin signoff required to resolve
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="button button-primary small-button"
+                                  onClick={() => {
+                                    setResolveModalFinding(f);
+                                    setResolutionNote("");
+                                    setResolveError("");
+                                  }}
+                                  style={{ fontSize: "0.75rem", padding: "3px 10px" }}
+                                >
+                                  Resolve Finding…
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : integrityData && integrityData.findings.length === 0 ? (
+                  <div style={{
+                    marginTop: 12,
+                    padding: "12px 14px",
+                    borderRadius: "6px",
+                    background: "rgba(16, 185, 129, 0.08)",
+                    border: "1px solid rgba(16, 185, 129, 0.2)",
+                    fontSize: "0.85rem",
+                    color: "var(--accent-verified, #10b981)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}>
+                    <span aria-hidden="true">✓</span>
+                    <span>All forensic integrity checks verified. Zero custody or bit-level discrepancies detected.</span>
+                  </div>
+                ) : null}
+
+                {/* Mandatory Disclaimer */}
+                <div style={{
+                  marginTop: 14,
+                  padding: "8px 12px",
+                  borderRadius: "4px",
+                  background: "rgba(255, 255, 255, 0.02)",
+                  border: "1px dashed var(--border-default, #23272f)",
+                  fontSize: "0.75rem",
+                  color: "var(--text-secondary, #9ca3af)",
+                  lineHeight: 1.4,
+                }}>
+                  <strong style={{ color: "var(--text-primary)" }}>Forensic Notice: </strong>
+                  {integrityData?.disclaimer ?? "Operational integrity assessment based on EviChain records — does not constitute a legal admissibility determination."}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Server-side registry check */}
           <div className="detail-card ev-verify-section">
             <p className="eyebrow">INTEGRITY CHECK — REGISTRY</p>
@@ -791,6 +1228,126 @@ export default function EvidenceDetailPage() {
                   disabled={transferring || !transferToUserId}
                 >
                   {transferring ? "Transferring…" : "Confirm Transfer"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODULE 15: Resolve Integrity Finding Modal ── */}
+      {resolveModalFinding && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="resolve-modal-title"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(4px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: "var(--surface-raised, #181b20)",
+              border: "1px solid var(--border-default, #23272f)",
+              borderRadius: "8px",
+              padding: "24px",
+              maxWidth: "540px",
+              width: "100%",
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5)",
+            }}
+          >
+            <p className="eyebrow" style={{ color: "var(--brand-500, #38bdf8)", margin: "0 0 6px 0", fontSize: "0.75rem" }}>
+              AUDIT TRAIL GOVERNANCE
+            </p>
+            <h2 id="resolve-modal-title" style={{ margin: "0 0 12px 0", fontSize: "1.25rem", color: "var(--text-primary)" }}>
+              Resolve Integrity Finding
+            </h2>
+
+            <div style={{
+              padding: "10px 12px",
+              borderRadius: "6px",
+              background: "var(--surface-base, #0f1114)",
+              border: "1px solid var(--border-default, #23272f)",
+              marginBottom: 16,
+              fontSize: "0.85rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{
+                  padding: "1px 6px",
+                  borderRadius: "4px",
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  fontFamily: "var(--font-mono)",
+                  background: resolveModalFinding.severity === "CRITICAL" ? "rgba(244, 63, 94, 0.2)" : "rgba(251, 191, 36, 0.2)",
+                  color: resolveModalFinding.severity === "CRITICAL" ? "var(--accent-danger, #f43f5e)" : "var(--accent-pending, #fbbf24)",
+                }}>
+                  {resolveModalFinding.severity}
+                </span>
+                <strong>{resolveModalFinding.title}</strong>
+              </div>
+              <div style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>
+                Code: <code>{resolveModalFinding.code}</code>
+              </div>
+            </div>
+
+            {resolveError && (
+              <div style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                background: "rgba(244, 63, 94, 0.12)",
+                border: "1px solid rgba(244, 63, 94, 0.3)",
+                color: "var(--accent-danger, #f43f5e)",
+                fontSize: "0.85rem",
+                marginBottom: 14,
+              }} role="alert">
+                {resolveError}
+              </div>
+            )}
+
+            <form onSubmit={handleResolveFindingSubmit}>
+              <div style={{ marginBottom: 16 }}>
+                <label className="label" htmlFor="resolution-note" style={{ display: "block", marginBottom: 6, fontSize: "0.85rem", fontWeight: 600 }}>
+                  Forensic Resolution Note (Mandatory Audit Explanation) *
+                </label>
+                <textarea
+                  id="resolution-note"
+                  className="textarea"
+                  value={resolutionNote}
+                  disabled={resolveSubmitting}
+                  onChange={(e) => setResolutionNote(e.target.value)}
+                  placeholder="Explain why this anomaly is cleared (e.g. Vault restore confirmed bit parity, physical signoff verified)..."
+                  rows={4}
+                  required
+                  style={{ width: "100%", fontSize: "0.85rem" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={() => { setResolveModalFinding(null); setResolutionNote(""); setResolveError(""); }}
+                  disabled={resolveSubmitting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="button button-primary"
+                  disabled={resolveSubmitting || !resolutionNote.trim()}
+                >
+                  {resolveSubmitting ? "Submitting Resolution…" : "Confirm Resolution"}
                 </button>
               </div>
             </form>
