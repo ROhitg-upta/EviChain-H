@@ -399,161 +399,175 @@ export default function DashboardPage() {
         </div>
 
         {/* 4 Forensic Key Metrics */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: "14px",
-        }}>
-          {/* Average Evidence Health */}
-          <div style={{
-            background: "var(--surface-base, #0f1114)",
-            border: "1px solid var(--border-default, #23272f)",
-            borderRadius: "6px",
-            padding: "14px 16px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px",
-          }}>
-            <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", textTransform: "uppercase" }}>
-              AVG EVIDENCE HEALTH
-            </span>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-              <strong style={{
-                fontSize: "1.75rem",
-                fontWeight: 800,
-                color: (integritySummary?.averageEvidenceScore ?? 100) >= 90
-                  ? "var(--accent-verified, #10b981)"
-                  : (integritySummary?.averageEvidenceScore ?? 100) >= 70
-                  ? "var(--accent-pending, #fbbf24)"
-                  : "var(--accent-danger, #f43f5e)",
+        {(() => {
+          const critCount = integritySummary?.findingsDistribution?.critical ?? (integritySummary as any)?.criticalCount ?? 0;
+          const highCount = integritySummary?.findingsDistribution?.high ?? (integritySummary as any)?.highCount ?? 0;
+          const medCount = integritySummary?.findingsDistribution?.medium ?? 0;
+          const reviewCount = highCount + medCount;
+          const critFindings = integritySummary?.criticalFindings ?? [];
+          const avgEvScore = integritySummary?.averageEvidenceScore ?? 100;
+          const avgCaseScore = integritySummary?.averageCaseScore ?? 100;
+
+          return (
+            <>
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: "14px",
               }}>
-                {integritySummary ? Math.round(integritySummary.averageEvidenceScore) : "—"}
-              </strong>
-              <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>/100</span>
-            </div>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-              {integritySummary?.evidenceAssessedCount ?? 0} exhibits evaluated
-            </span>
-          </div>
-
-          {/* Average Case Readiness */}
-          <div style={{
-            background: "var(--surface-base, #0f1114)",
-            border: "1px solid var(--border-default, #23272f)",
-            borderRadius: "6px",
-            padding: "14px 16px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px",
-          }}>
-            <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", textTransform: "uppercase" }}>
-              AVG CASE READINESS
-            </span>
-            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-              <strong style={{
-                fontSize: "1.75rem",
-                fontWeight: 800,
-                color: (integritySummary?.averageCaseScore ?? 100) >= 90
-                  ? "var(--accent-verified, #10b981)"
-                  : (integritySummary?.averageCaseScore ?? 100) >= 70
-                  ? "var(--accent-pending, #fbbf24)"
-                  : "var(--accent-danger, #f43f5e)",
-              }}>
-                {integritySummary ? Math.round(integritySummary.averageCaseScore) : "—"}
-              </strong>
-              <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>/100</span>
-            </div>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-              {integritySummary?.casesAssessedCount ?? 0} dossiers evaluated
-            </span>
-          </div>
-
-          {/* Critical Anomalies */}
-          <div style={{
-            background: "var(--surface-base, #0f1114)",
-            border: `1px solid ${(integritySummary?.findingsDistribution.critical ?? 0) > 0 ? "rgba(244, 63, 94, 0.4)" : "var(--border-default, #23272f)"}`,
-            borderRadius: "6px",
-            padding: "14px 16px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px",
-          }}>
-            <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--accent-danger, #f43f5e)", textTransform: "uppercase" }}>
-              CRITICAL BREACHES
-            </span>
-            <strong style={{
-              fontSize: "1.75rem",
-              fontWeight: 800,
-              color: (integritySummary?.findingsDistribution.critical ?? 0) > 0 ? "var(--accent-danger, #f43f5e)" : "var(--accent-verified, #10b981)",
-            }}>
-              {integritySummary?.findingsDistribution.critical ?? 0}
-            </strong>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-              {(integritySummary?.findingsDistribution.critical ?? 0) > 0 ? "Requires Administrator review" : "Zero cryptographic mismatches"}
-            </span>
-          </div>
-
-          {/* High / Medium Discrepancies */}
-          <div style={{
-            background: "var(--surface-base, #0f1114)",
-            border: "1px solid var(--border-default, #23272f)",
-            borderRadius: "6px",
-            padding: "14px 16px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "4px",
-          }}>
-            <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--accent-pending, #fbbf24)", textTransform: "uppercase" }}>
-              HIGH & REVIEW SIGNALS
-            </span>
-            <strong style={{
-              fontSize: "1.75rem",
-              fontWeight: 800,
-              color: ((integritySummary?.findingsDistribution.high ?? 0) + (integritySummary?.findingsDistribution.medium ?? 0)) > 0
-                ? "var(--accent-pending, #fbbf24)"
-                : "var(--accent-verified, #10b981)",
-            }}>
-              {(integritySummary?.findingsDistribution.high ?? 0) + (integritySummary?.findingsDistribution.medium ?? 0)}
-            </strong>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-              Custody gaps & metadata anomalies
-            </span>
-          </div>
-        </div>
-
-        {/* Critical Findings Spotlight if any exist */}
-        {integritySummary && integritySummary.criticalFindings.length > 0 && (
-          <div style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "8px",
-            padding: "14px",
-            borderRadius: "6px",
-            background: "rgba(244, 63, 94, 0.08)",
-            border: "1px solid rgba(244, 63, 94, 0.3)",
-          }}>
-            <strong style={{ fontSize: "0.85rem", color: "var(--accent-danger, #f43f5e)" }}>
-              Active Critical Integrity Breaches:
-            </strong>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {integritySummary.criticalFindings.slice(0, 3).map((cf) => (
-                <div key={cf.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.8rem" }}>
-                  <span style={{ color: "var(--text-primary)" }}>
-                    {cf.title} {cf.evidence?.name ? `(${cf.evidence.name})` : ""}
+                {/* Average Evidence Health */}
+                <div style={{
+                  background: "var(--surface-base, #0f1114)",
+                  border: "1px solid var(--border-default, #23272f)",
+                  borderRadius: "6px",
+                  padding: "14px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}>
+                  <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+                    AVG EVIDENCE HEALTH
                   </span>
-                  {cf.evidenceId && (
-                    <Link
-                      href={`/evidence/${cf.evidenceId}`}
-                      style={{ color: "var(--accent-danger, #f43f5e)", fontWeight: 700, textDecoration: "underline" }}
-                    >
-                      Remediate →
-                    </Link>
-                  )}
+                  <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+                    <strong style={{
+                      fontSize: "1.75rem",
+                      fontWeight: 800,
+                      color: avgEvScore >= 90
+                        ? "var(--accent-verified, #10b981)"
+                        : avgEvScore >= 70
+                        ? "var(--accent-pending, #fbbf24)"
+                        : "var(--accent-danger, #f43f5e)",
+                    }}>
+                      {integritySummary ? Math.round(avgEvScore) : "—"}
+                    </strong>
+                    <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>/100</span>
+                  </div>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                    {integritySummary?.evidenceAssessedCount ?? 0} exhibits evaluated
+                  </span>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+
+                {/* Average Case Readiness */}
+                <div style={{
+                  background: "var(--surface-base, #0f1114)",
+                  border: "1px solid var(--border-default, #23272f)",
+                  borderRadius: "6px",
+                  padding: "14px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}>
+                  <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+                    AVG CASE READINESS
+                  </span>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
+                    <strong style={{
+                      fontSize: "1.75rem",
+                      fontWeight: 800,
+                      color: avgCaseScore >= 90
+                        ? "var(--accent-verified, #10b981)"
+                        : avgCaseScore >= 70
+                        ? "var(--accent-pending, #fbbf24)"
+                        : "var(--accent-danger, #f43f5e)",
+                    }}>
+                      {integritySummary ? Math.round(avgCaseScore) : "—"}
+                    </strong>
+                    <span style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>/100</span>
+                  </div>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                    {integritySummary?.casesAssessedCount ?? 0} dossiers evaluated
+                  </span>
+                </div>
+
+                {/* Critical Anomalies */}
+                <div style={{
+                  background: "var(--surface-base, #0f1114)",
+                  border: `1px solid ${critCount > 0 ? "rgba(244, 63, 94, 0.4)" : "var(--border-default, #23272f)"}`,
+                  borderRadius: "6px",
+                  padding: "14px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}>
+                  <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--accent-danger, #f43f5e)", textTransform: "uppercase" }}>
+                    CRITICAL BREACHES
+                  </span>
+                  <strong style={{
+                    fontSize: "1.75rem",
+                    fontWeight: 800,
+                    color: critCount > 0 ? "var(--accent-danger, #f43f5e)" : "var(--accent-verified, #10b981)",
+                  }}>
+                    {critCount}
+                  </strong>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                    {critCount > 0 ? "Requires Administrator review" : "Zero cryptographic mismatches"}
+                  </span>
+                </div>
+
+                {/* High / Medium Discrepancies */}
+                <div style={{
+                  background: "var(--surface-base, #0f1114)",
+                  border: "1px solid var(--border-default, #23272f)",
+                  borderRadius: "6px",
+                  padding: "14px 16px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}>
+                  <span style={{ fontSize: "0.7rem", fontFamily: "var(--font-mono)", color: "var(--accent-pending, #fbbf24)", textTransform: "uppercase" }}>
+                    HIGH & REVIEW SIGNALS
+                  </span>
+                  <strong style={{
+                    fontSize: "1.75rem",
+                    fontWeight: 800,
+                    color: reviewCount > 0
+                      ? "var(--accent-pending, #fbbf24)"
+                      : "var(--accent-verified, #10b981)",
+                  }}>
+                    {reviewCount}
+                  </strong>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                    Custody gaps & metadata anomalies
+                  </span>
+                </div>
+              </div>
+
+              {/* Critical Findings Spotlight if any exist */}
+              {critFindings.length > 0 && (
+                <div style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                  padding: "14px",
+                  borderRadius: "6px",
+                  background: "rgba(244, 63, 94, 0.08)",
+                  border: "1px solid rgba(244, 63, 94, 0.3)",
+                }}>
+                  <strong style={{ fontSize: "0.85rem", color: "var(--accent-danger, #f43f5e)" }}>
+                    Active Critical Integrity Breaches:
+                  </strong>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    {critFindings.slice(0, 3).map((cf) => (
+                      <div key={cf.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.8rem" }}>
+                        <span style={{ color: "var(--text-primary)" }}>
+                          {cf.title} {cf.evidence?.name ? `(${cf.evidence.name})` : ""}
+                        </span>
+                        {cf.evidenceId && (
+                          <Link
+                            href={`/evidence/${cf.evidenceId}`}
+                            style={{ color: "var(--accent-danger, #f43f5e)", fontWeight: 700, textDecoration: "underline" }}
+                          >
+                            Remediate →
+                          </Link>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
       </section>
 
       {/* Main Two-Column Layout */}

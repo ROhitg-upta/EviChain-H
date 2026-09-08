@@ -687,12 +687,67 @@ class IntegrityIntelligenceService {
 
     const criticalCount = openFindings.filter((f) => f.severity === "CRITICAL").length;
     const highCount = openFindings.filter((f) => f.severity === "HIGH").length;
+    const mediumCount = openFindings.filter((f) => f.severity === "MEDIUM").length;
+    const lowCount = openFindings.filter((f) => f.severity === "LOW").length;
+
+    // Fetch assessed evidence scores
+    const evidenceAssessments = await prisma.integrityAssessment.findMany({
+      where: { evidenceId: { not: null } },
+      orderBy: { assessedAt: "desc" },
+      distinct: ["evidenceId"],
+      select: { overallScore: true },
+    });
+
+    const caseAssessments = await prisma.integrityAssessment.findMany({
+      where: { caseId: { not: null } },
+      orderBy: { assessedAt: "desc" },
+      distinct: ["caseId"],
+      select: { overallScore: true },
+    });
+
+    const totalEvidenceCount = await prisma.evidence.count();
+    const totalCasesCount = await prisma.case.count();
+
+    const avgEv = evidenceAssessments.length > 0
+      ? evidenceAssessments.reduce((acc, a) => acc + a.overallScore, 0) / evidenceAssessments.length
+      : 100;
+
+    const avgCase = caseAssessments.length > 0
+      ? caseAssessments.reduce((acc, a) => acc + a.overallScore, 0) / caseAssessments.length
+      : 100;
+
+    const criticalFindings = openFindings
+      .filter((f) => f.severity === "CRITICAL")
+      .map((f) => ({
+        id: f.id,
+        title: f.title,
+        code: f.code,
+        severity: f.severity,
+        evidenceId: f.evidenceId,
+        caseId: f.caseId,
+        detectedAt: f.detectedAt.toISOString(),
+        evidence: f.evidence ? { id: f.evidence.id, name: f.evidence.name } : null,
+        case: f.case ? { id: f.case.id, title: f.case.title } : null,
+      }));
 
     return {
       openFindingsCount: openFindings.length,
       criticalCount,
       highCount,
       topFindings: openFindings.slice(0, 5),
+      averageEvidenceScore: Math.round(avgEv),
+      averageCaseScore: Math.round(avgCase),
+      evidenceAssessedCount: evidenceAssessments.length,
+      totalEvidenceCount,
+      casesAssessedCount: caseAssessments.length,
+      totalCasesCount,
+      findingsDistribution: {
+        critical: criticalCount,
+        high: highCount,
+        medium: mediumCount,
+        low: lowCount,
+      },
+      criticalFindings,
     };
   }
 }

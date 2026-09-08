@@ -744,7 +744,7 @@ export default function CaseDetailPage() {
           )}
 
           {/* Critical Non-Negotiable Override Rule Banner */}
-          {integrityData && integrityData.distribution.critical > 0 && (
+          {integrityData && (integrityData.distribution?.critical ?? 0) > 0 && (
             <div style={{
               padding: "16px 20px",
               borderRadius: "8px",
@@ -760,7 +760,7 @@ export default function CaseDetailPage() {
                   CRITICAL ANOMALY OVERRIDE ENFORCED
                 </strong>
                 <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--text-primary)", lineHeight: 1.5 }}>
-                  {integrityData.distribution.critical} exhibit(s) in this case triggered a <strong>CRITICAL</strong> finding (cryptographic hash mismatch or vault storage unavailability). By forensic integrity governance rules, this case is capped at <strong>{integrityData.assessment?.overallStatus ?? "AT_RISK"}</strong> status and cannot be declared court-ready until all critical findings are formally remediated and resolved by an Administrator.
+                  {integrityData.distribution?.critical ?? 0} exhibit(s) in this case triggered a <strong>CRITICAL</strong> finding (cryptographic hash mismatch or vault storage unavailability). By forensic integrity governance rules, this case is capped at <strong>{integrityData.assessment?.overallStatus ?? "AT_RISK"}</strong> status and cannot be declared court-ready until all critical findings are formally remediated and resolved by an Administrator.
                 </p>
               </div>
             </div>
@@ -845,7 +845,7 @@ export default function CaseDetailPage() {
             }}>
               <span className="eyebrow" style={{ color: "var(--accent-danger, #f43f5e)" }}>CRITICAL ANOMALIES</span>
               <strong style={{ fontSize: "2.75rem", fontWeight: 800, lineHeight: 1, color: "var(--accent-danger, #f43f5e)" }}>
-                {integrityData?.distribution.critical ?? 0}
+                {integrityData?.distribution?.critical ?? 0}
               </strong>
               <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                 Evidence exhibits requiring immediate escalation
@@ -864,10 +864,10 @@ export default function CaseDetailPage() {
             }}>
               <span className="eyebrow" style={{ color: "var(--accent-pending, #fbbf24)" }}>AT RISK / REVIEW</span>
               <strong style={{ fontSize: "2.75rem", fontWeight: 800, lineHeight: 1, color: "var(--accent-pending, #fbbf24)" }}>
-                {(integrityData?.distribution.atRisk ?? 0) + (integrityData?.distribution.needsReview ?? 0)}
+                {(integrityData?.distribution?.atRisk ?? 0) + (integrityData?.distribution?.needsReview ?? 0)}
               </strong>
               <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-                {integrityData?.distribution.atRisk ?? 0} at risk · {integrityData?.distribution.needsReview ?? 0} needs review
+                {integrityData?.distribution?.atRisk ?? 0} at risk · {integrityData?.distribution?.needsReview ?? 0} needs review
               </span>
             </div>
 
@@ -883,7 +883,7 @@ export default function CaseDetailPage() {
             }}>
               <span className="eyebrow" style={{ color: "var(--accent-verified, #10b981)" }}>VERIFIED HEALTHY</span>
               <strong style={{ fontSize: "2.75rem", fontWeight: 800, lineHeight: 1, color: "var(--accent-verified, #10b981)" }}>
-                {integrityData?.distribution.healthy ?? 0}
+                {integrityData?.distribution?.healthy ?? 0}
               </strong>
               <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
                 Exhibit integrity fully verified

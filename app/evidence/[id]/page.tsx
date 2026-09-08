@@ -735,16 +735,16 @@ export default function EvidenceDetailPage() {
                 </div>
 
                 {/* Findings Section */}
-                {integrityData && integrityData.findings.length > 0 ? (
+                {integrityData && (integrityData.findings ?? []).length > 0 ? (
                   <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        Active Findings ({integrityData.findings.length})
+                        Active Findings ({(integrityData.findings ?? []).length})
                       </span>
                     </div>
 
                     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {integrityData.findings.map((f) => (
+                      {(integrityData.findings ?? []).map((f) => (
                         <div
                           key={f.id}
                           style={{
