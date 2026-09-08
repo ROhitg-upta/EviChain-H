@@ -18,7 +18,7 @@ const stateClass: Record<FieldState, string> = {
 };
 
 const fieldClass =
-  "w-full rounded-lg border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-sm text-slate-100 shadow-sm transition placeholder:text-slate-500 focus:outline-none focus:ring-4 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 dark:bg-slate-900 dark:text-slate-50 dark:placeholder:text-slate-500 dark:disabled:bg-slate-800";
+  "w-full rounded-lg border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-sm text-slate-100 shadow-sm transition placeholder:text-slate-400 focus:outline-none focus:ring-4 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 dark:bg-slate-900 dark:text-slate-50 dark:placeholder:text-slate-400 dark:disabled:bg-slate-800";
 
 export type InputProps = InputHTMLAttributes<HTMLInputElement> & {
   label?: string;

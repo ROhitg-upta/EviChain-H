@@ -167,7 +167,7 @@ export default function PublicVerifyPage() {
   return (
     <main style={{ minHeight: "100vh", background: "var(--surface-base)", color: "var(--text-primary)", fontFamily: "var(--font-sans)" }}>
       {/* Navigation Header */}
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 32px", borderBottom: "1px solid var(--border-default)", background: "var(--surface-raised)" }}>
+      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid var(--border-default)", background: "var(--surface-raised)", flexWrap: "wrap", gap: 12 }}>
         <a href="/" style={{ display: "flex", alignItems: "center", gap: 12, textDecoration: "none", color: "var(--text-primary)" }} aria-label="EviChain home">
           <span style={{ width: 32, height: 32, display: "grid", placeItems: "center", background: "var(--brand-600)", color: "var(--neutral-50)", borderRadius: "var(--radius-md)", fontSize: 16, fontWeight: 800 }}>E</span>
           <div>
@@ -177,18 +177,18 @@ export default function PublicVerifyPage() {
             </div>
           </div>
         </a>
-        <nav style={{ display: "flex", gap: 16, fontSize: "var(--text-sm)" }}>
+        <nav style={{ display: "flex", gap: 16, fontSize: "var(--text-sm)", alignItems: "center" }}>
           <a href="/" style={{ color: "var(--text-secondary)", textDecoration: "none" }}>Home</a>
-          <a href="/login" className="btn btn-secondary btn-sm">Sign In →</a>
+          <a href="/login" className="btn btn-secondary btn-sm" style={{ minHeight: 36 }}>Sign In →</a>
         </nav>
       </header>
 
       {/* Main Container */}
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: "48px 24px 80px" }}>
+      <div style={{ maxWidth: 760, margin: "0 auto", padding: "32px 16px 80px", width: "100%", boxSizing: "border-box", overflowX: "hidden" }}>
         {/* Header Hero */}
-        <div style={{ textAlign: "center", marginBottom: 36 }}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
           <p className="eyebrow" style={{ color: "var(--brand-600)", marginBottom: 8 }}>INTEGRITY CHECKPOINT</p>
-          <h1 style={{ margin: 0, fontSize: "var(--text-2xl)", fontWeight: 800, letterSpacing: "var(--tracking-tight)", color: "var(--text-primary)" }}>
+          <h1 style={{ margin: 0, fontSize: "clamp(22px, 5.5vw, 36px)", fontWeight: 800, letterSpacing: "var(--tracking-tight)", color: "var(--text-primary)", lineHeight: 1.15 }}>
             Verify Evidence Integrity
           </h1>
           <p style={{ margin: "12px auto 0", maxWidth: 540, fontSize: "var(--text-sm)", color: "var(--text-secondary)", lineHeight: 1.6 }}>
@@ -197,15 +197,15 @@ export default function PublicVerifyPage() {
         </div>
 
         {/* Console Box */}
-        <div className="verify-console">
+        <div className="verify-console" style={{ padding: "clamp(16px, 4vw, 32px)", width: "100%", boxSizing: "border-box" }}>
           {/* Tabs */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 24, paddingBottom: 16, borderBottom: "1px solid var(--border-default)" }} role="tablist">
+          <div style={{ display: "flex", gap: 8, marginBottom: 24, paddingBottom: 16, borderBottom: "1px solid var(--border-default)", flexWrap: "wrap" }} role="tablist">
             <button
               onClick={() => { setActiveTab("hash"); reset(); }}
               role="tab"
               aria-selected={activeTab === "hash"}
               className={`btn ${activeTab === "hash" ? "btn-primary" : "btn-secondary"} btn-md`}
-              style={{ flex: 1 }}
+              style={{ flex: "1 1 140px", minHeight: 44 }}
             >
               # Verify SHA-256 Hash
             </button>
@@ -214,7 +214,7 @@ export default function PublicVerifyPage() {
               role="tab"
               aria-selected={activeTab === "file"}
               className={`btn ${activeTab === "file" ? "btn-primary" : "btn-secondary"} btn-md`}
-              style={{ flex: 1 }}
+              style={{ flex: "1 1 140px", minHeight: 44 }}
             >
               📁 Verify File Upload
             </button>
