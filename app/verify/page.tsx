@@ -439,7 +439,7 @@ export default function PublicVerifyPage() {
           <h3 style={{ textAlign: "center", fontSize: "var(--text-md)", fontWeight: 700, color: "var(--text-primary)", marginBottom: 24 }}>
             How EviChain Verification Works
           </h3>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 18 }}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               { num: "01", title: "Calculate Fingerprint", desc: "Computes a collision-resistant 256-bit cryptographic digest from the raw binary stream." },
               { num: "02", title: "Query Vault Ledger", desc: "Compares the fingerprint against immutable evidence records registered by authorized investigators." },
