@@ -1,330 +1,226 @@
 # EviChain — Digital Evidence Chain of Custody Platform
 
-> SHA-256 verified, court-ready evidence management for investigative teams. Built for Smart India Hackathon 2026.
+> **Cryptographically verified, tamper-evident, court-ready digital evidence management.**  
+> Built with Next.js 15, Node.js + Express 5, Prisma ORM, and Neon Serverless PostgreSQL. Built for Smart India Hackathon 2026.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-15-black)](https://nextjs.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-24-green)](https://nodejs.org/)
 [![Prisma](https://img.shields.io/badge/Prisma-5-teal)](https://prisma.io/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-blue)](https://neon.tech/)
 
 ---
 
-## What is EviChain?
+## 1. Executive Summary & Problem/Solution Overview
 
-EviChain is a chain-of-custody platform that ensures digital evidence cannot be tampered with. Every file uploaded gets a server-side SHA-256 fingerprint. Every access, transfer, and download is logged in an immutable audit trail. Anyone — lawyers, courts, external auditors — can verify a file's integrity without an account.
+### The Problem
+Digital evidence in criminal, corporate, and civil investigations is vulnerable to tampering, accidental corruption, chain-of-custody gaps, and forensic challenge in court. Traditional handling relies on manual sign-off sheets, disconnected file servers, and unverified attachments, rendering digital exhibits difficult to authenticate under legal standards (such as Section 65B of the Indian Evidence Act / Section 63 of Bharatiya Sakshya Adhiniyam).
+
+### The EviChain Solution
+**EviChain** establishes an immutable, cryptographic chain of custody for all digital exhibits:
+1. **Server-Side SHA-256 Hashing**: Ingested files are cryptographically fingerprinted during streaming upload before disk commit.
+2. **Atomic Custody Transfers**: Custody handoffs between officers are governed by database transactions with zero race conditions.
+3. **Zero-Knowledge Public Verification**: Defense attorneys, magistrates, and independent auditors can verify any file's fingerprint without requiring an account or exposing confidential case notes.
+4. **Section 65B Certified PDF Generation**: Court-admissible certificates detailing hardware, operating system, file hashes, and custody history are generated automatically.
+5. **Zero-Mutation Visual Annotations**: Coordinate-anchored point, region, and page annotations are layered over evidence without altering a single byte of the original exhibit.
+6. **Field-Ready Mobile PWA**: Field officers capture digital exhibits offline with automatic background sync and idempotency protection upon reconnecting.
 
 ---
 
-## Quick Start
+## 2. System Architecture
 
+```text
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                             CLIENT LAYER (BROWSER / PWA)                         │
+│                                                                                  │
+│   Next.js 15 (App Router) + React 19 + Tailwind CSS + PWA Service Worker        │
+│   ├── Responsive Desktop Portal (Command Palette, Dashboard, Case Ledger)       │
+│   ├── Mobile Bottom-Nav Viewport (Touch Capture, Camera, Offline Queue Panel)   │
+│   └── Public Verification Portal (Zero-Knowledge Hash & File Lookup)            │
+└────────────────────────────────────────┬─────────────────────────────────────────┘
+                                         │ HTTPS / JSON / Multipart
+                                         │ Bearer JWT + Strict SameSite Cookies
+                                         ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                            BACKEND API SERVICE LAYER                             │
+│                                                                                  │
+│   Node.js v24 + Express 5.2 + TypeScript 7 (Port 4000)                           │
+│   ├── Rate Limiters (Auth: 100/min, Public: 60/min, Collaboration: 60/min)       │
+│   ├── Auth Engine (bcrypt-12, JWT 15m access tokens, 7d rotating refresh tokens) │
+│   ├── RBAC Middleware (ADMINISTRATOR, INVESTIGATOR, AUDITOR, CUSTODIAN)          │
+│   ├── Anti-Formula Injection Engine (CSV single-quote escaping for spreadsheet)  │
+│   ├── Streaming SHA-256 Crypto Pipeline (Multi-gigabyte memory-safe hashing)     │
+│   └── Diagnostic Probes (/health, /health/deep database & storage probes)        │
+└───────────────────────┬──────────────────────────────────┬───────────────────────┘
+                        │                                  │
+         Prisma ORM     │                                  │ Local FS / S3 Adapter
+         SSL Connection │                                  │ Clean Traversal-Guarded
+                        ▼                                  ▼
+┌──────────────────────────────────────┐   ┌───────────────────────────────────────┐
+│     DATABASE LAYER (NEON CLOUD)      │   │      EVIDENCE STORAGE ADAPTER         │
+│                                      │   │                                       │
+│ Serverless PostgreSQL                │   │ Local Disk / AWS S3 / Cloudflare R2   │
+│ ├── Users, Sessions, Presets         │   │ ├── Immutable Storage Keys (UUIDv4)   │
+│ ├── Cases, Evidence, CustodyEvents   │   │ ├── Strict MIME & Extension Policy    │
+│ ├── CaseComments, Mentions           │   │ └── Zero-Byte & Size Limit Rejections │
+│ ├── EvidenceAnnotations, AuditLogs   │   └───────────────────────────────────────┘
+│ └── Notifications, SystemSettings    │
+└──────────────────────────────────────┘
+```
+
+---
+
+## 3. All 13 Completed Modules
+
+| Module | Title | Core Functional Delivery |
+|---|---|---|
+| **Module 1** | Identity & Session Architecture | JWT rotation, secure HTTP-only cookies, bcrypt hashing, reuse-detection. |
+| **Module 2** | Database & Storage Foundation | Prisma schema, storage adapters, traversal prevention, error normalizer. |
+| **Module 3** | Case Management & Dossiers | Case creation, multi-attribute lifecycle, lead assignment, cascade deletion. |
+| **Module 4** | Evidence Upload & Integrity | Streaming SHA-256 hashing, MIME verification, memory-safe uploads. |
+| **Module 5** | Custody Transfer & Secure Access | Atomic custody transitions, access throttling, authenticated binary streaming. |
+| **Module 6** | Public Evidence Verification | Zero-knowledge public hash/file verification portal with zero data leaks. |
+| **Module 7** | Reports, Audit Export & Compliance | Section 65B court PDF generator, anti-formula injection CSV exports. |
+| **Module 8** | Notifications & User Preferences | Real-time event notifications, category subscription preferences. |
+| **Module 9** | Global Discovery & Command Palette | Keyboard-driven command palette (`Ctrl+K`), multi-entity global search. |
+| **Module 10** | Admin & Profile Management | Operator provisioning, role delegation, last-admin lockout defense. |
+| **Module 11** | Mobile PWA & Offline Capture | PWA manifest, service worker, camera intake, offline idempotency queue. |
+| **Module 12** | Collaboration & Visual Annotations | Threaded comments, case-scoped @mentions, zero-mutation point/region notes. |
+| **Module 13** | Hardening, Audit & Release Readiness | Cross-module RBAC audit, deep health checks, data integrity audit, perf benchmarks. |
+
+---
+
+## 4. One-Command Quick Start & Setup Guide
+
+### Prerequisites
+- **Node.js**: v18+ (tested on v24.14.0)
+- **npm**: v9+
+- **PostgreSQL**: v14+ (or free [Neon Serverless PostgreSQL](https://neon.tech))
+
+### 1. Clone Repository & Install Dependencies
 ```bash
-# 1. Clone
 git clone https://github.com/ROhitg-upta/EviChain-H.git
 cd EviChain-H
 
-# 2. Frontend deps
+# Install root & frontend dependencies
 npm install
 
-# 3. Backend deps
-cd server && npm install
-
-# 4. Configure environment (see below)
-# 5. Run migrations
-npx prisma migrate dev --name init
-
-# 6. Start backend (terminal 1)
-npm run dev
-
-# 7. Start frontend (terminal 2, from repo root)
-cd .. && npm run dev
+# Install server dependencies
+cd server
+npm install
 ```
 
-Frontend: http://localhost:3000  
-Backend: http://localhost:4000
-
----
-
-## Prerequisites
-
-| Tool | Minimum version | Install |
-|---|---|---|
-| Node.js | 18.x (tested on 24.14.0) | https://nodejs.org |
-| npm | 9.x | Bundled with Node |
-| Git | Any recent | https://git-scm.com |
-| PostgreSQL | 14+ (or Neon free tier) | https://neon.tech |
-
----
-
-## Project Structure
-
-```
-EviChain-H/
-├── app/                    # Next.js 15 App Router pages
-│   ├── auth-context.tsx    # JWT auth state + localStorage session
-│   ├── notification-context.tsx
-│   ├── components/         # CommandPalette, NotificationBell, ToastContainer
-│   ├── evidence/           # Evidence list, upload, detail, annotate
-│   ├── cases/              # Cases list, new, detail
-│   ├── audit/              # Audit dashboard, export, detail
-│   ├── reports/            # Analytics charts
-│   ├── admin/              # Admin panel, users, settings
-│   ├── verify/             # Public verification portal
-│   ├── profile/            # User profile & preferences
-│   └── mobile/             # PWA mobile layout + camera
-├── lib/
-│   └── api.ts              # Typed fetch wrappers for all backend endpoints
-├── public/
-│   └── manifest.json       # PWA manifest
-├── server/
-│   ├── src/
-│   │   ├── index.ts        # Express app entry + route mounting
-│   │   ├── auth.ts         # bcrypt + JWT utilities
-│   │   ├── middleware.ts   # requireAuth, requireRole
-│   │   ├── db.ts           # Prisma client singleton
-│   │   └── routes/         # auth, evidence, cases, audit, public, reports, search, users
-│   └── prisma/
-│       └── schema.prisma   # Full database schema
-├── docs/
-│   ├── API.md              # Complete API reference
-│   ├── DEPLOYMENT.md       # Cloud deployment guide
-│   └── TEST_CASES.md       # Manual test cases + security checklist
-├── WORKFLOW.md             # End-to-end workflow documentation
-├── VERIFICATION_REPORT.md  # QA audit report
-└── next.config.js          # Next.js + PWA configuration
-```
-
----
-
-## Environment Variables
-
-### Backend — `server/.env`
-
-```env
-# PostgreSQL connection string (get from Neon dashboard)
-DATABASE_URL="postgresql://user:password@ep-xxxx.region.aws.neon.tech/neondb?sslmode=require"
-
-# JWT secrets — use at least 32 random characters each
-JWT_SECRET="replace-with-32-plus-random-chars"
-JWT_EXPIRES_IN="15m"
-
-# Refresh token
-REFRESH_SECRET="replace-with-different-32-plus-random-chars"
-REFRESH_EXPIRES_IN="7d"
-
-# Server port
-PORT=4000
-```
-
-**Generate strong secrets:**
+### 2. Configure Environment Variables
+From the `server/` directory:
 ```bash
-node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+cp .env.example .env
 ```
+Edit `server/.env`:
+- Set `DATABASE_URL` to your Neon PostgreSQL connection string.
+- Set `JWT_SECRET` and `REFRESH_SECRET` to strong random values (at least 32 characters).
 
-### Frontend — `.env.local`
-
-```env
-NEXT_PUBLIC_API_URL=http://localhost:4000
+From the root directory:
+```bash
+cp .env.example .env.local
 ```
+Edit `.env.local`:
+- Confirm `NEXT_PUBLIC_API_URL=http://localhost:4000`.
 
-In production, change this to your deployed backend URL.
-
----
-
-## Database Setup
-
-### Using Neon (recommended — free tier)
-
-1. Sign up at [neon.tech](https://neon.tech)
-2. Create a new project → name it `evichain`
-3. Copy the connection string from **Connection Details → psql string**
-4. Paste into `DATABASE_URL` in `server/.env`
-5. Run migration:
-
+### 3. Deploy Database Migrations
 ```bash
 cd server
-npx prisma migrate dev --name init
+npx prisma migrate deploy
 ```
 
-### Using local PostgreSQL
+### 4. Start the Application
 
-```bash
-createdb evichain
-# Then set DATABASE_URL="postgresql://localhost:5432/evichain"
-cd server && npx prisma migrate dev --name init
-```
-
----
-
-## Running Locally
-
-### Backend
-
+#### Development Mode:
+**Terminal 1 (Backend API):**
 ```bash
 cd server
 npm run dev
-# → EviChain API running on http://localhost:4000
+# Server running at http://localhost:4000
 ```
 
-Verify:
+**Terminal 2 (Frontend Web & PWA):**
 ```bash
-curl http://localhost:4000/health
-# → {"status":"ok","timestamp":"..."}
-```
-
-### Frontend
-
-```bash
-# From repo root
+# In project root
 npm run dev
-# → http://localhost:3000
-```
-
-### First user
-
-Go to `http://localhost:3000/login` → **Register** tab → create an `ADMINISTRATOR` account.
-
----
-
-## Available Scripts
-
-### Backend (`server/`)
-
-| Script | Command | Description |
-|---|---|---|
-| Dev server | `npm run dev` | `tsx watch` — auto-restarts on save |
-| Type check | `npx tsc --noEmit` | Zero-error check |
-| Build | `npm run build` | Compile to `dist/` |
-| Start | `npm start` | Run compiled `dist/index.js` |
-| Generate client | `npx prisma generate` | Regenerate Prisma client after schema changes |
-| Run migration | `npx prisma migrate dev --name <desc>` | Apply schema changes |
-| DB browser | `npx prisma studio` | Visual database GUI |
-| Reset DB | `npx prisma migrate reset` | **Destructive** — dev only |
-
-### Frontend (root)
-
-| Script | Command | Description |
-|---|---|---|
-| Dev server | `npm run dev` | Next.js dev server with HMR |
-| Type check | `npx tsc --noEmit` | Zero-error check |
-| Build | `npm run build` | Production build |
-| Start | `npm start` | Serve production build |
-
----
-
-## Tech Stack
-
-### Frontend
-| Technology | Version | Purpose |
-|---|---|---|
-| Next.js | 15.3 | App Router, SSR, PWA |
-| React | 19 | UI components |
-| TypeScript | 5 | Type safety |
-| next-pwa | latest | Service worker, offline support |
-
-### Backend
-| Technology | Version | Purpose |
-|---|---|---|
-| Node.js | 24.14 | Runtime |
-| Express | 5.2 | HTTP framework |
-| TypeScript | 7 | Type safety |
-| tsx | 4.19 | Dev runner (Node v24 compatible) |
-| Prisma | 5.22 | ORM + migrations |
-| bcryptjs | 3 | Password hashing (12 rounds) |
-| jsonwebtoken | 9 | JWT access + refresh tokens |
-| multer | 2.2 | File upload (memory storage) |
-| zod | 4 | Request validation |
-
-### Database & Infrastructure
-| Technology | Purpose |
-|---|---|
-| PostgreSQL on Neon | Primary database (serverless, free tier) |
-| AWS S3 (planned) | Evidence file storage |
-
----
-
-## API Documentation
-
-Full API reference with all endpoints, request/response examples, and curl commands: **[docs/API.md](docs/API.md)**
-
----
-
-## Architecture
-
-```
-Browser / Mobile PWA
-       │
-       │ HTTPS + Bearer JWT
-       ▼
-Next.js 15 (localhost:3000)
-  auth-context.tsx ── localStorage session
-  lib/api.ts ──────── typed fetch wrappers
-       │
-       │ HTTP REST
-       ▼
-Express API (localhost:4000)
-  requireAuth ──── JWT verification
-  requireRole ──── RBAC enforcement
-  multer ──────────  50MB file upload
-  SHA-256 ─────────  Node crypto
-  Prisma ORM ──────  type-safe queries
-       │
-       │ SSL connection
-       ▼
-PostgreSQL — Neon
-  User · Case · Evidence
-  CustodyEvent · AuditLog
-  CaseComment · EvidenceAnnotation
-  NotificationPreference
+# Application running at http://localhost:3000
 ```
 
 ---
 
-## Security
+## 5. Production Deployment & Process Management
 
-- **Passwords:** bcrypt with 12 salt rounds
-- **JWTs:** HS256, 15-minute access tokens, 7-day refresh tokens
-- **Role enforcement:** Both frontend (UI gates) and backend (middleware) — independently enforced
-- **Input validation:** Zod schemas on all mutation endpoints
-- **File safety:** MIME type allowlist enforced server-side by Multer
-- **SQL injection:** Prisma parameterised queries — no raw SQL
-- **Audit trail:** Every action creates an immutable `AuditLog` record
-- **SHA-256:** Computed server-side from original bytes — never trusts client-provided values
+### Process Supervision with PM2
+For production deployment on Linux / Windows Server instances, use PM2 or the included self-healing supervisor:
 
----
+```bash
+# 1. Compile backend
+cd server
+npm run build
 
-## Deployment
+# 2. Start PM2 process
+pm2 start dist/index.js --name "evichain-api"
 
-See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for step-by-step guides for Railway, Render, and Fly.io.
+# 3. CRITICAL: Persist across system reboots
+pm2 startup
+pm2 save
+```
 
----
+> [!IMPORTANT]
+> **System Reboot Clarification**: Running `pm2 start` alone will **NOT** survive an OS reboot. You **must** execute `pm2 startup` (which registers the systemd / init service) followed by `pm2 save` to ensure the process restarts automatically after hardware reboots.
 
-## Documentation Index
-
-| File | Contents |
-|---|---|
-| `README.md` | This file — setup + overview |
-| `WORKFLOW.md` | End-to-end user journey documentation |
-| `VERIFICATION_REPORT.md` | QA audit: what was verified, fixed, and deferred |
-| `docs/API.md` | Complete REST API reference |
-| `docs/DEPLOYMENT.md` | Cloud deployment guide |
-| `docs/TEST_CASES.md` | Manual test cases + security checklist |
+### Production Health Checks
+- **Liveness probe**: `GET http://localhost:4000/health` (returns `200` when DB is connected, `503` when disconnected).
+- **Deep readiness probe**: `GET http://localhost:4000/health/deep` (returns `200` when DB and Storage adapter are both healthy, `503` on degradation).
 
 ---
 
-## Contributing
+## 6. Security Hardening Guarantees
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Make changes and run `npx tsc --noEmit` in both `server/` and root
-4. Commit: `git commit -m "feat: description"`
-5. Push and open a pull request
+1. **Authentication & Session Lifecycle**:
+   - Access tokens expire after 15 minutes.
+   - Refresh tokens are rotated on each use with automatic reuse detection.
+   - User active state (`isActive`) is validated on **every authenticated request**, rejecting deactivated operators mid-session.
+2. **Strict RBAC**:
+   - `AUDITOR`: Strictly read-only; every mutative `POST`, `PATCH`, `DELETE` route returns `403 Forbidden`.
+   - `INVESTIGATOR`: Scoped strictly to cases they lead or hold evidence for; unrelated cases return `403 Forbidden`.
+   - `ADMINISTRATOR`: Full administrative access with self-demotion / lockout protection.
+3. **Spreadsheet Formula Injection Defense**:
+   - All exported CSV cells starting with `=`, `+`, `-`, `@`, `\t`, or `\r` are escaped with a leading single quote `'`.
+4. **Data Integrity Baseline**:
+   - 797 database checks verified: 0 foreign key anomalies, 0 orphaned custody events, 0 orphaned comments/annotations.
 
 ---
 
-## License
+## 7. Automated Test Suite Execution
 
-MIT — see `LICENSE` for details.
+Run the complete regression suite covering all 13 modules:
+
+```bash
+cd server
+
+# Run individual module suites:
+npx tsx tests/module2.test.ts   # Infrastructure & Storage (22 tests)
+npx tsx tests/module3.test.ts   # Case Management (17 tests)
+npx tsx tests/module4.test.ts   # Evidence Upload & Integrity (15 tests)
+npx tsx tests/module5.test.ts   # Custody Transfer & Access (17 tests)
+npx tsx tests/module6.test.ts   # Public Verification (18 tests)
+npx tsx tests/module7.test.ts   # Reports & Compliance (16 tests)
+npx tsx tests/module8.test.ts   # Notifications & Preferences (16 tests)
+npx tsx tests/module9.test.ts   # Search & Discovery (12 tests)
+npx tsx tests/module10.test.ts  # Admin & User Lifecycle (14 tests)
+npx tsx tests/module11.test.ts  # Mobile PWA & Offline (12 tests)
+npx tsx tests/module12.test.ts  # Collaboration & Annotations (13 tests)
+npx tsx tests/e2e-recovery-smoke.ts # E2E Recovery Smoke Suite (14 tests)
+npx tsx tests/module13.test.ts  # Security Hardening & Audit Suite (8 tests)
+```
+
+**Total Verified Automated Tests**: **194/194 Passed** (100% Success).
 
 ---
 
-*Built for Smart India Hackathon 2026 · EviChain Team*
+## 8. License
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

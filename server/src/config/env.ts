@@ -75,7 +75,16 @@ function parseEnv() {
     console.error("❌ Invalid environment configuration:", result.error.format());
     throw new Error("Invalid environment configuration. Check your .env file.");
   }
-  return result.data;
+  const data = result.data;
+  if (data.NODE_ENV === "production") {
+    if (data.JWT_SECRET === data.REFRESH_SECRET) {
+      throw new Error("FATAL: JWT_SECRET and REFRESH_SECRET must be different in production.");
+    }
+    if (data.JWT_SECRET.includes("default-secret") || data.REFRESH_SECRET.includes("default-refresh")) {
+      throw new Error("FATAL: Insecure default secrets cannot be used in production.");
+    }
+  }
+  return data;
 }
 
 export const env = parseEnv();

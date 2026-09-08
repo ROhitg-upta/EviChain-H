@@ -5,7 +5,7 @@ import { z } from "zod";
 import * as archiver from "archiver";
 import { prisma, normalizePrismaError } from "../db";
 import { getStorageAdapter } from "../storage";
-import { requireAuth, AuthedRequest, requireRole } from "../middleware";
+import { requireAuth, AuthedRequest, requireRole, collaborationLimiter } from "../middleware";
 
 
 
@@ -533,10 +533,6 @@ router.post(
         return res.status(400).json({ code: "RECIPIENT_REQUIRED", error: "toUserId is required" });
       }
 
-      if (toUserId === req.userId) {
-        return res.status(400).json({ code: "TRANSFER_TO_SELF", error: "Cannot transfer custody of evidence to yourself." });
-      }
-
       const result = await prisma.$transaction(async (tx) => {
         const evidence = await tx.evidence.findUnique({
           where: { id },
@@ -565,6 +561,10 @@ router.post(
               error: "Only the current custodian or an administrator can transfer custody of this evidence.",
             },
           };
+        }
+
+        if (toUserId === req.userId) {
+          return { status: 400, data: { code: "TRANSFER_TO_SELF", error: "Cannot transfer custody of evidence to yourself." } };
         }
 
         // Recipient validation
@@ -875,7 +875,7 @@ router.get("/:id/annotations", requireAuth, async (req: AuthedRequest, res) => {
 });
 
 // ── POST /evidence/:id/annotations ────────────────────────────────
-router.post("/:id/annotations", requireAuth, async (req: AuthedRequest, res) => {
+router.post("/:id/annotations", requireAuth, collaborationLimiter, async (req: AuthedRequest, res) => {
   try {
     const evidenceId = req.params["id"] as string;
 

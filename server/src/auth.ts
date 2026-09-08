@@ -4,10 +4,20 @@ import jwt from "jsonwebtoken";
 import { Response, CookieOptions } from "express";
 
 function getJwtSecret(): string {
+  if (process.env.NODE_ENV === "production") {
+    if (!process.env.JWT_SECRET || process.env.JWT_SECRET.includes("default-secret")) {
+      throw new Error("FATAL: JWT_SECRET must be set securely in production");
+    }
+  }
   return process.env.JWT_SECRET || "default-secret-key-min-32-chars-evichain-dev";
 }
 
 function getRefreshSecret(): string {
+  if (process.env.NODE_ENV === "production") {
+    if (!process.env.REFRESH_SECRET || process.env.REFRESH_SECRET.includes("default-refresh")) {
+      throw new Error("FATAL: REFRESH_SECRET must be set securely in production");
+    }
+  }
   return process.env.REFRESH_SECRET || "default-refresh-secret-min-32-chars-evichain-dev";
 }
 

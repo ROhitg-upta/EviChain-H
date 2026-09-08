@@ -1,12 +1,13 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyAccessToken } from "./auth";
+import { prisma } from "./db";
 
 export interface AuthedRequest extends Request {
   userId?: string;
   userRole?: string;
 }
 
-export function requireAuth(
+export async function requireAuth(
   req: AuthedRequest,
   res: Response,
   next: NextFunction,
@@ -17,13 +18,31 @@ export function requireAuth(
     return res.status(401).json({ error: "Missing authorization token" });
   }
 
+  let payload: { sub: string; role: string };
   try {
-    const payload = verifyAccessToken(header.replace("Bearer ", ""));
-    req.userId = payload.sub;
-    req.userRole = payload.role;
-    next();
+    payload = verifyAccessToken(header.replace("Bearer ", ""));
   } catch {
     return res.status(401).json({ error: "Invalid or expired token" });
+  }
+
+  req.userId = payload.sub;
+  req.userRole = payload.role;
+
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, role: true, isActive: true },
+    });
+
+    if (!user || !user.isActive) {
+      return res.status(401).json({ error: "User account deactivated or session invalidated" });
+    }
+
+    req.userRole = user.role;
+    next();
+  } catch (err) {
+    console.error("[requireAuth] Verification error:", err);
+    return res.status(500).json({ error: "Authentication verification failed" });
   }
 }
 
@@ -73,4 +92,12 @@ export function createRateLimiter(options: { windowMs: number; max: number; mess
 
     next();
   };
-}
+}
+
+/** Rate limiter for collaboration endpoints (comments and annotations): 60 requests/min */
+export const collaborationLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 60,
+  message: "Too many comments or annotations submitted. Please slow down.",
+});
+

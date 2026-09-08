@@ -1,8 +1,10 @@
 import "dotenv/config";
+import "./config/env";
 import express, { NextFunction, Request, Response } from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { prisma } from "./db";
+import { getStorageAdapter } from "./storage";
 
 import authRoutes from "./routes/auth.routes";
 import evidenceRoutes from "./routes/evidence.routes";
@@ -96,6 +98,43 @@ app.get("/health", async (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     database: dbStatus,
     ...(isHealthy ? {} : { message: "Database connection unavailable" }),
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /health/deep — Deep Diagnostic Health Check (DB + Storage)
+// ═══════════════════════════════════════════════════════════════════
+app.get("/health/deep", async (_req: Request, res: Response) => {
+  let dbStatus = "connected";
+  let storageStatus = "accessible";
+
+  try {
+    await Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Database heartbeat timeout")), 4000)),
+    ]);
+  } catch {
+    dbStatus = "disconnected";
+  }
+
+  try {
+    const storage = getStorageAdapter();
+    await storage.exists("__probe__");
+  } catch {
+    storageStatus = "unreachable";
+  }
+
+  const isHealthy = dbStatus === "connected" && storageStatus === "accessible";
+  const statusCode = isHealthy ? 200 : 503;
+
+  return res.status(statusCode).json({
+    ok: isHealthy,
+    service: "evichain-api",
+    environment: process.env.NODE_ENV || "development",
+    timestamp: new Date().toISOString(),
+    database: dbStatus,
+    storage: storageStatus,
+    ...(isHealthy ? {} : { message: "One or more core services are degraded" }),
   });
 });
 

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import PDFDocument from "pdfkit";
 import { prisma, normalizePrismaError } from "../db";
-import { requireAuth, AuthedRequest, requireRole } from "../middleware";
+import { requireAuth, AuthedRequest, requireRole, collaborationLimiter } from "../middleware";
 import { notificationService } from "../services/notification.service";
 import { generateCaseSummaryPdf } from "../services/pdf.service";
 
@@ -90,6 +90,14 @@ router.get("/", requireAuth, async (req: AuthedRequest, res) => {
 router.get("/:id", requireAuth, async (req: AuthedRequest, res) => {
   try {
     const id = req.params["id"] as string;
+
+    const authCheck = await getAuthorizedCase(id, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.caseRecord) {
+      return res.status(authCheck.errorStatus).json({
+        error: authCheck.errorMessage,
+        code: authCheck.errorStatus === 404 ? "CASE_NOT_FOUND" : "FORBIDDEN",
+      });
+    }
 
     const caseRecord = await prisma.case.findUnique({
       where: { id },
@@ -199,14 +207,26 @@ router.post(
 async function handleUpdate(req: AuthedRequest, res: import("express").Response) {
   try {
     const id = req.params["id"] as string;
+
+    if (req.userRole === "AUDITOR") {
+      return res.status(403).json({ error: "Auditors have read-only access and cannot update cases" });
+    }
+
     const parsed = updateCaseSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.flatten() });
     }
 
-    const existing = await prisma.case.findUnique({ where: { id } });
-    if (!existing) {
-      return res.status(404).json({ error: "Case not found" });
+    const authCheck = await getAuthorizedCase(id, req.userId, req.userRole);
+    if (authCheck.errorStatus > 0 || !authCheck.caseRecord) {
+      return res.status(authCheck.errorStatus).json({
+        error: authCheck.errorMessage,
+        code: authCheck.errorStatus === 404 ? "CASE_NOT_FOUND" : "FORBIDDEN",
+      });
+    }
+
+    if (req.userRole === "INVESTIGATOR" && authCheck.caseRecord.leadUserId !== req.userId) {
+      return res.status(403).json({ error: "Only the lead investigator or administrator can update this case" });
     }
 
     const caseRecord = await prisma.case.update({
@@ -333,6 +353,14 @@ router.post(
   async (req: AuthedRequest, res) => {
     try {
       const caseId = req.params["caseId"] as string;
+
+      const authCheck = await getAuthorizedCase(caseId, req.userId, req.userRole);
+      if (authCheck.errorStatus > 0 || !authCheck.caseRecord) {
+        return res.status(authCheck.errorStatus).json({
+          error: authCheck.errorMessage,
+          code: authCheck.errorStatus === 404 ? "CASE_NOT_FOUND" : "FORBIDDEN",
+        });
+      }
 
       if (!req.file) {
         return res.status(400).json({ code: "FILE_REQUIRED", error: "No file payload provided." });
@@ -548,7 +576,7 @@ router.get("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
 });
 
 // ── POST /cases/:id/comments ──────────────────────────────────────
-router.post("/:id/comments", requireAuth, async (req: AuthedRequest, res) => {
+router.post("/:id/comments", requireAuth, collaborationLimiter, async (req: AuthedRequest, res) => {
   try {
     const caseId = req.params["id"] as string;
 

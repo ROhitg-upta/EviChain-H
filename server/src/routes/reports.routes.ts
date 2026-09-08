@@ -242,6 +242,16 @@ router.get("/cases/:id/pdf", requireAuth, async (req: AuthedRequest, res) => {
   }
 });
 
+function sanitizeCsvCell(value: unknown): string {
+  if (value == null) return '""';
+  let str = String(value);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  const escaped = str.replace(/"/g, '""');
+  return `"${escaped}"`;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // GET /reports/export — Compliance summary CSV export
 // ═══════════════════════════════════════════════════════════════════
@@ -271,16 +281,14 @@ router.get("/export", requireAuth, requireRole("ADMINISTRATOR", "AUDITOR"), asyn
     lines.push("=== CASE REGISTER ===");
     lines.push("Case ID,Title,Status,Priority,Created At");
     for (const c of cases) {
-      const safeTitle = `"${c.title.replace(/"/g, '""')}"`;
-      lines.push(`"${c.id}",${safeTitle},"${c.status}","${c.priority || 'NORMAL'}","${c.createdAt.toISOString()}"`);
+      lines.push(`${sanitizeCsvCell(c.id)},${sanitizeCsvCell(c.title)},${sanitizeCsvCell(c.status)},${sanitizeCsvCell(c.priority || 'NORMAL')},${sanitizeCsvCell(c.createdAt.toISOString())}`);
     }
     lines.push("");
 
     lines.push("=== EVIDENCE REGISTRY ===");
     lines.push("Evidence ID,Name,Type,Status,Size (Bytes),SHA-256 Checksum,Created At");
     for (const e of evidence) {
-      const safeName = `"${e.name.replace(/"/g, '""')}"`;
-      lines.push(`"${e.id}",${safeName},"${e.type}","${e.status}",${e.sizeBytes},"${e.sha256}","${e.createdAt.toISOString()}"`);
+      lines.push(`${sanitizeCsvCell(e.id)},${sanitizeCsvCell(e.name)},${sanitizeCsvCell(e.type)},${sanitizeCsvCell(e.status)},${e.sizeBytes},${sanitizeCsvCell(e.sha256)},${sanitizeCsvCell(e.createdAt.toISOString())}`);
     }
 
     const csvContent = lines.join("\r\n");
