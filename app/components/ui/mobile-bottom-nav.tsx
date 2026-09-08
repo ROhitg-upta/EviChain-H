@@ -4,7 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useNotifications } from "@/app/notification-context";
-import { LayoutDashboard, Briefcase, Camera, Shield } from "./icons";
+import { LayoutDashboard, Briefcase, Camera, Shield, Bell } from "./icons";
 
 interface MobileBottomNavProps {
   onOpenCapture: () => void;
@@ -97,20 +97,7 @@ export default function MobileBottomNav({
           aria-label="Alerts"
         >
           <div className="relative">
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="w-5 h-5 mb-1"
-            >
-              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+            <Bell className="w-5 h-5 mb-1" />
             {unreadCount > 0 && (
               <span
                 className={`absolute -top-1 -right-2.5 text-[9px] font-bold min-w-4 h-4 px-1 rounded-full flex items-center justify-center ${

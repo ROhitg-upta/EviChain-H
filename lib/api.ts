@@ -1640,11 +1640,13 @@ export async function deleteNotification(token: string, id: string): Promise<{ m
   return safeJson(res);
 }
 
-export async function getNeedsAttentionAlerts(token: string): Promise<{ items: NeedsAttentionItem[]; count: number }> {
+export async function getNeedsAttentionAlerts(
+  token: string,
+): Promise<{ items: NeedsAttentionItem[]; count: number; criticalCount?: number; actionRequiredCount?: number }> {
   const res = await apiFetch(`${API_URL}/notifications/needs-attention`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) return { items: [], count: 0 };
+  if (!res.ok) return { items: [], count: 0, criticalCount: 0, actionRequiredCount: 0 };
   return safeJson(res);
 }
 

@@ -32,9 +32,13 @@ const ALLOWED_PREFERENCE_KEYS = new Set<string>([
 router.get("/needs-attention", requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const items = await alertIntelligenceService.getNeedsAttentionQueue(req.userId!, req.userRole!);
+    const criticalCount = items.filter((i) => i.severity === "CRITICAL" || i.severity === "SECURITY").length;
+    const actionRequiredCount = items.filter((i) => i.actionRequired).length;
     return res.json({
       items,
       count: items.length,
+      criticalCount,
+      actionRequiredCount,
     });
   } catch (error) {
     console.error("[Notifications API] Needs Attention error:", error);

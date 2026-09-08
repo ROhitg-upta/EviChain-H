@@ -262,10 +262,18 @@ async function runTests() {
       headers: { Authorization: `Bearer ${user1Token}` },
     });
     assert.strictEqual(rNeedsAttn.status, 200);
-    const dNeedsAttn = await rNeedsAttn.json() as { items: Array<{ actionRequired: boolean; severity: string }> };
+    const dNeedsAttn = await rNeedsAttn.json() as {
+      items: Array<{ actionRequired: boolean; severity: string }>;
+      count: number;
+      criticalCount: number;
+      actionRequiredCount: number;
+    };
     assert(dNeedsAttn.items.length > 0, "Needs Attention queue must contain items");
     assert(dNeedsAttn.items.every((i) => i.actionRequired === true), "All items in queue must have actionRequired true");
-    console.log("✓ [PASS] 10. Needs Attention queue returns real actionable items sorted by severity");
+    assert(typeof dNeedsAttn.count === "number", "Response must contain count");
+    assert(typeof dNeedsAttn.criticalCount === "number", "Response must contain criticalCount");
+    assert(typeof dNeedsAttn.actionRequiredCount === "number", "Response must contain actionRequiredCount");
+    console.log("✓ [PASS] 10. Needs Attention queue returns real actionable items sorted by severity with count metrics");
 
     // ═══════════════════════════════════════════════════════════════
     // 11. Deactivated user cannot access alert endpoints

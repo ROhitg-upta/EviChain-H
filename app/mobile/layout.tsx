@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useAuth } from "../auth-context";
 import InstallPWAPrompt from "../components/install-pwa-prompt";
+import { Bell } from "../components/ui/icons";
 
 export default function MobileLayout({ children }: { children: ReactNode }) {
   const { user } = useAuth();
@@ -53,14 +54,14 @@ export default function MobileLayout({ children }: { children: ReactNode }) {
 
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         {[
-          { href: "/mobile",        icon: "⊞", label: "Home"     },
-          { href: "/evidence",      icon: "◈", label: "Evidence" },
-          { href: "/cases",         icon: "▣", label: "Cases"    },
-          { href: "/notifications", icon: "⚑", label: "Alerts"   },
-          { href: "/profile",       icon: "○", label: "Profile"  },
+          { href: "/mobile",        icon: <span aria-hidden="true">⊞</span>, label: "Home"     },
+          { href: "/evidence",      icon: <span aria-hidden="true">◈</span>, label: "Evidence" },
+          { href: "/cases",         icon: <span aria-hidden="true">▣</span>, label: "Cases"    },
+          { href: "/notifications", icon: <Bell width={18} height={18} aria-hidden="true" />, label: "Alerts"   },
+          { href: "/profile",       icon: <span aria-hidden="true">○</span>, label: "Profile"  },
         ].map(({ href, icon, label }) => (
           <a key={href} href={href} className="nav-item" aria-label={label}>
-            <span aria-hidden="true">{icon}</span>
+            {icon}
             <span>{label}</span>
           </a>
         ))}

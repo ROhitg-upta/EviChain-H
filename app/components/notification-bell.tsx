@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useNotifications, type Notification } from "../notification-context";
+import { NotificationBellIcon } from "./ui/notification-bell-icon";
 
 // Severity visual tokens matching EviChain government-grade dark palette
 const SEVERITY_CONFIG: Record<
@@ -289,6 +290,13 @@ export default function NotificationBell() {
   // Determine beacon dot color and animation
   const isCritical = highestUnreadSeverity === "CRITICAL" || highestUnreadSeverity === "SECURITY";
   const hasAction = actionRequiredCount > 0;
+  const bellState: "default" | "unread" | "action-required" | "critical" = isCritical
+    ? "critical"
+    : hasAction
+    ? "action-required"
+    : unreadCount > 0
+    ? "unread"
+    : "default";
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -297,24 +305,20 @@ export default function NotificationBell() {
           setOpen((v) => !v);
           if (!open) refresh();
         }}
-        aria-label="Open Investigation Alerts"
+        aria-label="Open investigation alerts"
         aria-expanded={open}
         aria-haspopup="true"
-        title={
-          isCritical
-            ? "CRITICAL INTEGRITY / SECURITY ALERTS DETECTED"
-            : hasAction
-            ? `${actionRequiredCount} action-required alert(s)`
-            : "Investigation Alerts"
-        }
+        title="Open Investigation Alerts"
         className="alert-beacon-btn"
         style={{
           background: "transparent",
           border: "1px solid var(--border-default, #23272f)",
           borderRadius: "var(--radius-md, 6px)",
-          color: "var(--text-primary, #f8fafc)",
-          width: "36px",
-          height: "36px",
+          color: "var(--text-secondary, #94a3b8)",
+          width: "44px",
+          height: "44px",
+          minWidth: "44px",
+          minHeight: "44px",
           display: "grid",
           placeItems: "center",
           cursor: "pointer",
@@ -322,27 +326,12 @@ export default function NotificationBell() {
           transition: "all var(--transition-fast, 150ms ease)",
         }}
       >
-        {/* Forensic Radar / Alert Beacon Icon */}
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke={
-            isCritical
-              ? "var(--accent-danger, #f43f5e)"
-              : hasAction
-              ? "var(--accent-warning, #fbbf24)"
-              : "currentColor"
-          }
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-          <circle cx="12" cy="12" r="3" />
-        </svg>
+        {/* Standard recognizable bell icon */}
+        <NotificationBellIcon
+          size={20}
+          state={bellState}
+          decorative={true}
+        />
 
         {/* Pulse / Badge indicator */}
         {unreadCount > 0 && (
@@ -350,8 +339,8 @@ export default function NotificationBell() {
             className={isCritical ? "critical-alert-pulse" : undefined}
             style={{
               position: "absolute",
-              top: "-4px",
-              right: "-4px",
+              top: "2px",
+              right: "2px",
               background: isCritical
                 ? "var(--accent-danger, #f43f5e)"
                 : hasAction
@@ -530,6 +519,15 @@ export default function NotificationBell() {
           100% {
             box-shadow: 0 0 0 0 rgba(244, 63, 94, 0);
           }
+        }
+        .alert-beacon-btn:hover {
+          color: var(--text-primary, #f8fafc) !important;
+          border-color: var(--border-hover, #3d4350) !important;
+          background: var(--surface-raised, #181b20) !important;
+        }
+        .alert-beacon-btn:focus-visible {
+          outline: 2px solid var(--brand-500, #4abe94) !important;
+          outline-offset: 2px !important;
         }
         .critical-alert-pulse {
           animation: alert-pulse 2s infinite cubic-bezier(0.66, 0, 0, 1);
