@@ -25,7 +25,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
   return (
     <div className="grid gap-1.5">
       {label && (
-        <label htmlFor={selectId} className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+        <label htmlFor={selectId} className="text-xs font-bold uppercase tracking-wider text-slate-200 dark:text-slate-200">
           {label}
         </label>
       )}
@@ -33,10 +33,10 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         ref={ref}
         id={selectId}
         className={cn(
-          "h-10 w-full rounded-lg border bg-white px-3.5 text-sm text-slate-950 shadow-sm transition focus:outline-none focus:ring-4 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:bg-slate-900 dark:text-slate-50 dark:disabled:bg-slate-800",
+          "h-10 w-full rounded-lg border bg-slate-900 border-slate-700 px-3.5 text-sm text-slate-100 shadow-sm transition focus:outline-none focus:ring-4 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 dark:bg-slate-900 dark:text-slate-50 dark:disabled:bg-slate-800",
           error
-            ? "border-red-300 focus:border-red-600 focus:ring-red-600/20"
-            : "border-slate-200 focus:border-emerald-600 focus:ring-emerald-600/20 dark:border-slate-700",
+            ? "border-red-500 focus:border-red-500 focus:ring-red-500/20"
+            : "border-slate-700 focus:border-emerald-500 focus:ring-emerald-500/20 dark:border-slate-700",
           className,
         )}
         aria-invalid={error ? true : undefined}
@@ -51,7 +51,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         ))}
       </select>
       {(error || helperText) && (
-        <p id={descriptionId} className={cn("text-xs leading-5", error ? "text-red-700 dark:text-red-300" : "text-slate-500 dark:text-slate-400")}>
+        <p id={descriptionId} className={cn("text-xs leading-5", error ? "text-red-400 dark:text-red-300" : "text-slate-400 dark:text-slate-400")}>
           {error || helperText}
         </p>
       )}

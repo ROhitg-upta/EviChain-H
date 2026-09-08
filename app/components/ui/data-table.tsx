@@ -79,10 +79,10 @@ export function DataTable<T extends { id: string }>({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-950">
+    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-950 shadow-sm dark:border-slate-800 dark:bg-slate-950">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[720px] border-collapse">
-          <thead className="bg-slate-50 dark:bg-slate-900">
+          <thead className="bg-slate-900 dark:bg-slate-900">
             <tr>
               {onSelectionChange && (
                 <th className="w-12 px-4 py-3 text-left">
@@ -92,11 +92,11 @@ export function DataTable<T extends { id: string }>({
               {columns.map((column) => {
                 const key = String(column.key);
                 return (
-                  <th key={key} className={cn("px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-500", column.className)}>
+                  <th key={key} className={cn("px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400", column.className)}>
                     {column.sortable ? (
-                      <button type="button" className="inline-flex items-center gap-1 hover:text-slate-950 dark:hover:text-slate-50" onClick={() => toggleSort(key)}>
+                      <button type="button" className="inline-flex items-center gap-1 text-slate-400 hover:text-slate-100 dark:hover:text-slate-50" onClick={() => toggleSort(key)}>
                         {column.header}
-                        <span aria-hidden="true">{sortKey === key ? (sortDir === "asc" ? "up" : "down") : "sort"}</span>
+                        <span aria-hidden="true">{sortKey === key ? (sortDir === "asc" ? "↑" : "↓") : "⇅"}</span>
                       </button>
                     ) : column.header}
                   </th>
@@ -107,19 +107,19 @@ export function DataTable<T extends { id: string }>({
           <tbody>
             {visibleRows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length + (onSelectionChange ? 1 : 0)} className="px-4 py-10 text-center text-sm text-slate-500">
+                <td colSpan={columns.length + (onSelectionChange ? 1 : 0)} className="px-4 py-10 text-center text-sm text-slate-400">
                   {emptyState}
                 </td>
               </tr>
             ) : visibleRows.map((row) => (
-              <tr key={row.id} className="border-t border-slate-100 transition hover:bg-emerald-50/50 dark:border-slate-800 dark:hover:bg-slate-900" aria-label={getRowLabel?.(row)}>
+              <tr key={row.id} className="border-t border-slate-800 transition hover:bg-slate-900/60 dark:border-slate-800 dark:hover:bg-slate-900" aria-label={getRowLabel?.(row)}>
                 {onSelectionChange && (
                   <td className="px-4 py-3">
                     <Checkbox label={`Select ${getRowLabel?.(row) ?? row.id}`} className="border-0 bg-transparent p-0" checked={selectedIds.includes(row.id)} onChange={(event) => toggleRow(row.id, event.target.checked)} />
                   </td>
                 )}
                 {columns.map((column) => (
-                  <td key={String(column.key)} className={cn("px-4 py-3 text-sm text-slate-700 dark:text-slate-200", column.className)}>
+                  <td key={String(column.key)} className={cn("px-4 py-3 text-sm text-slate-200 dark:text-slate-200", column.className)}>
                     {column.cell(row)}
                   </td>
                 ))}
@@ -128,7 +128,7 @@ export function DataTable<T extends { id: string }>({
           </tbody>
         </table>
       </div>
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-xs text-slate-500 dark:border-slate-800">
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 px-4 py-3 text-xs text-slate-400 dark:border-slate-800">
         <span>{sortedRows.length} rows · page {page} of {pages}</span>
         <div className="flex gap-2">
           <Button type="button" variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</Button>

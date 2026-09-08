@@ -304,7 +304,7 @@ export default function PublicVerifyPage() {
               {file && clientComputedHash && (
                 <div style={{ marginTop: 16, padding: "12px 16px", background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-subtle)" }}>
                   <span className="eyebrow" style={{ display: "block", marginBottom: 4, color: "var(--text-secondary)" }}>LOCAL DIGEST COMPUTED</span>
-                  <code style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--neutral-400)", wordBreak: "break-all" }}>{clientComputedHash}</code>
+                  <code style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent-active)", wordBreak: "break-all" }}>{clientComputedHash}</code>
                 </div>
               )}
 
@@ -357,7 +357,7 @@ export default function PublicVerifyPage() {
 
               <div style={{ padding: 16, background: "var(--surface-sunken)", borderRadius: "var(--radius-md)", textAlign: "left", marginBottom: 20 }}>
                 <span className="eyebrow" style={{ display: "block", marginBottom: 6 }}>SUBMITTED SHA-256</span>
-                <code style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--neutral-400)", wordBreak: "break-all" }}>{result.data.sha256}</code>
+                <code style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent-active)", wordBreak: "break-all" }}>{result.data.sha256}</code>
               </div>
 
               <button className="btn btn-secondary btn-md" onClick={reset}>Verify Another Item</button>
@@ -417,7 +417,7 @@ export default function PublicVerifyPage() {
                     {copied ? "✓ Copied" : "Copy Checksum"}
                   </button>
                 </div>
-                <code style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--neutral-400)", wordBreak: "break-all", lineHeight: 1.6 }}>
+                <code style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--accent-active)", wordBreak: "break-all", lineHeight: 1.6 }}>
                   {result.data.sha256}
                 </code>
               </div>

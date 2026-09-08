@@ -313,22 +313,22 @@ export default function EvidenceDetailPage() {
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, color: "var(--muted, #6b7280)" }}>Current Custodian:</span>
+            <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>Current Custodian:</span>
             <span style={{
               display: "inline-flex",
               alignItems: "center",
               gap: 6,
               padding: "4px 10px",
               borderRadius: 20,
-              background: "#ecfdf5",
-              border: "1px solid #10b981",
-              color: "#065f46",
+              background: "var(--accent-verified-dim)",
+              border: "1px solid var(--accent-verified-border)",
+              color: "var(--accent-verified)",
               fontSize: 13,
               fontWeight: 600,
             }}>
-              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#10b981" }} />
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--accent-verified)" }} />
               {record.currentCustodian?.name ?? record.collectedBy?.name ?? "Unknown"}
-              <small style={{ color: "#047857", fontWeight: 500 }}>({record.currentCustodian?.role ?? record.collectedBy?.role ?? "INVESTIGATOR"})</small>
+              <small style={{ color: "var(--text-secondary)", fontWeight: 500 }}>({record.currentCustodian?.role ?? record.collectedBy?.role ?? "INVESTIGATOR"})</small>
             </span>
           </div>
         </div>
@@ -379,12 +379,12 @@ export default function EvidenceDetailPage() {
       </div>
 
       {transferSuccess && (
-        <div className="ev-info-banner" role="status" style={{ background: "#ecfdf5", borderColor: "#a7f3d0", color: "#065f46" }}>
+        <div className="ev-info-banner" role="status" style={{ background: "var(--accent-verified-dim)", borderColor: "var(--accent-verified-border)", color: "var(--accent-verified)" }}>
           ✓ {transferSuccess}
         </div>
       )}
       {downloadToast && (
-        <div className="ev-info-banner" role="status" style={{ background: "#ecfdf5", borderColor: "#a7f3d0", color: "#065f46" }}>
+        <div className="ev-info-banner" role="status" style={{ background: "var(--accent-verified-dim)", borderColor: "var(--accent-verified-border)", color: "var(--accent-verified)" }}>
           {downloadToast}
         </div>
       )}
@@ -589,19 +589,19 @@ export default function EvidenceDetailPage() {
                         {/* Event Content */}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 6 }}>
-                            <strong style={{ fontSize: 14, color: "#111827" }}>{meta.label}</strong>
+                            <strong style={{ fontSize: 14, color: "var(--text-primary)" }}>{meta.label}</strong>
                             <small
-                              style={{ color: "#6b7280", fontSize: 12 }}
+                              style={{ color: "var(--text-secondary)", fontSize: 12 }}
                               title={new Intl.DateTimeFormat("en-IN", { dateStyle: "long", timeStyle: "medium" }).format(new Date(ev.timestamp))}
                             >
                               {fmtRelative(ev.timestamp)}
                             </small>
                           </div>
 
-                          <div style={{ fontSize: 12, color: "#4b5563", marginTop: 2 }}>
-                            Actor: <strong>{ev.actor?.name ?? "System"}</strong>{" "}
+                          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                            Actor: <strong style={{ color: "var(--text-primary)" }}>{ev.actor?.name ?? "System"}</strong>{" "}
                             {ev.actor?.role && (
-                              <span style={{ fontSize: 11, background: "#f3f4f6", padding: "1px 5px", borderRadius: 4, color: "#374151" }}>
+                              <span style={{ fontSize: 11, background: "var(--surface-sunken)", border: "1px solid var(--border-default)", padding: "1px 5px", borderRadius: 4, color: "var(--text-secondary)" }}>
                                 {ev.actor.role}
                               </span>
                             )}
@@ -611,11 +611,11 @@ export default function EvidenceDetailPage() {
                             <div style={{
                               margin: "6px 0",
                               padding: "6px 10px",
-                              background: "#fffbeb",
-                              border: "1px solid #fef3c7",
+                              background: "var(--accent-pending-dim)",
+                              border: "1px solid var(--accent-pending-border)",
                               borderRadius: 6,
                               fontSize: 12,
-                              color: "#92400e",
+                              color: "var(--accent-pending)",
                             }}>
                               <span>From: <strong>{ev.fromUser?.name || "Previous Holder"}</strong></span>
                               <span style={{ margin: "0 6px" }}>→</span>
@@ -623,9 +623,9 @@ export default function EvidenceDetailPage() {
                             </div>
                           )}
 
-                          <p style={{ margin: "4px 0 0", fontSize: 13, color: "#374151" }}>{ev.note}</p>
+                          <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-primary)" }}>{ev.note}</p>
                           {ev.toLocation && (
-                            <small style={{ color: "#6b7280", display: "block", marginTop: 2 }}>
+                            <small style={{ color: "var(--text-secondary)", display: "block", marginTop: 2 }}>
                               Location: {ev.toLocation}
                             </small>
                           )}
@@ -658,12 +658,12 @@ export default function EvidenceDetailPage() {
           style={{
             position: "fixed",
             inset: 0,
-            backgroundColor: "rgba(0,0,0,0.5)",
+            backgroundColor: "rgba(0,0,0,0.75)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             zIndex: 1000,
-            backdropFilter: "blur(2px)",
+            backdropFilter: "blur(4px)",
           }}
           role="dialog"
           aria-labelledby="transfer-modal-title"
@@ -672,43 +672,45 @@ export default function EvidenceDetailPage() {
           <div
             className="modal-content"
             style={{
-              background: "white",
+              background: "var(--surface-overlay)",
+              border: "1px solid var(--border-default)",
+              color: "var(--text-primary)",
               padding: 24,
-              borderRadius: 8,
+              borderRadius: 12,
               maxWidth: 500,
               width: "92%",
-              boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)",
+              boxShadow: "var(--shadow-4)",
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h2 id="transfer-modal-title" style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+              <h2 id="transfer-modal-title" style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--text-primary)" }}>
                 Transfer Evidence Custody
               </h2>
               <button
                 type="button"
                 onClick={() => { setShowTransferModal(false); setTransferError(""); }}
                 disabled={transferring}
-                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}
+                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "var(--text-secondary)" }}
                 aria-label="Close transfer dialog"
               >
                 ×
               </button>
             </div>
 
-            <p style={{ fontSize: 13, color: "var(--muted, #6b7280)", marginBottom: 16 }}>
-              Transfer formal legal custody of <strong>{record.name}</strong> to another verified investigator or custodian.
+            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
+              Transfer formal legal custody of <strong style={{ color: "var(--text-primary)" }}>{record.name}</strong> to another verified investigator or custodian.
             </p>
 
             {/* Current Custodian Line */}
-            <div style={{ fontSize: 13, background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 6, padding: "8px 12px", marginBottom: 14 }}>
-              Current Custodian: <strong>{record.currentCustodian?.name ?? record.collectedBy?.name ?? "Unknown"}</strong> ({record.currentCustodian?.role ?? record.collectedBy?.role ?? "INVESTIGATOR"})
+            <div style={{ fontSize: 13, background: "var(--surface-sunken)", border: "1px solid var(--border-default)", color: "var(--text-primary)", borderRadius: 6, padding: "8px 12px", marginBottom: 14 }}>
+              Current Custodian: <strong style={{ color: "var(--accent-verified)" }}>{record.currentCustodian?.name ?? record.collectedBy?.name ?? "Unknown"}</strong> ({record.currentCustodian?.role ?? record.collectedBy?.role ?? "INVESTIGATOR"})
             </div>
 
             {/* Confirmation Summary if recipient is selected */}
             {(() => {
               const target = usersList.find((u) => u.id === transferToUserId);
               return target ? (
-                <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontSize: 13, color: "#1e40af" }}>
+                <div style={{ background: "var(--accent-active-dim)", border: "1px solid var(--accent-active-border)", borderRadius: 6, padding: "8px 12px", marginBottom: 14, fontSize: 13, color: "var(--accent-active)" }}>
                   Confirm transfer of custody from <strong>{record.currentCustodian?.name || record.collectedBy?.name || "Current Custodian"}</strong> to <strong>{target.name} ({target.role})</strong>?
                 </div>
               ) : null;

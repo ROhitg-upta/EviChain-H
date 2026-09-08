@@ -33,9 +33,9 @@ export function Modal({ open, title, description, children, footer, onClose, siz
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4 backdrop-blur-sm" role="presentation" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/75 p-4 backdrop-blur-sm" role="presentation" onMouseDown={onClose}>
       <section
-        className={cn("w-full rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-950", sizeClass[size])}
+        className={cn("w-full rounded-xl border border-slate-800 bg-slate-950 text-slate-100 p-5 shadow-2xl dark:border-slate-800 dark:bg-slate-950", sizeClass[size])}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -44,13 +44,13 @@ export function Modal({ open, title, description, children, footer, onClose, siz
       >
         <header className="mb-4 flex items-start justify-between gap-4">
           <div>
-            <h2 id="modal-title" className="text-lg font-bold tracking-normal text-slate-950 dark:text-slate-50">{title}</h2>
-            {description && <p id="modal-description" className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{description}</p>}
+            <h2 id="modal-title" className="text-lg font-bold tracking-normal text-slate-100 dark:text-slate-50">{title}</h2>
+            {description && <p id="modal-description" className="mt-1 text-sm leading-6 text-slate-400 dark:text-slate-400">{description}</p>}
           </div>
           <Button type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close dialog">Close</Button>
         </header>
         <div>{children}</div>
-        {footer && <footer className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">{footer}</footer>}
+        {footer && <footer className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-4 dark:border-slate-800">{footer}</footer>}
       </section>
     </div>
   );

@@ -10,15 +10,15 @@ type FieldState = "default" | "error" | "success";
 
 const stateClass: Record<FieldState, string> = {
   default:
-    "border-slate-200 focus:border-emerald-600 focus:ring-emerald-600/20 dark:border-slate-700",
+    "border-slate-700 focus:border-emerald-500 focus:ring-emerald-500/20 dark:border-slate-700",
   error:
-    "border-red-300 focus:border-red-600 focus:ring-red-600/20 dark:border-red-500",
+    "border-red-500 focus:border-red-500 focus:ring-red-500/20 dark:border-red-500",
   success:
-    "border-emerald-300 focus:border-emerald-600 focus:ring-emerald-600/20 dark:border-emerald-500",
+    "border-emerald-500 focus:border-emerald-500 focus:ring-emerald-500/20 dark:border-emerald-500",
 };
 
 const fieldClass =
-  "w-full rounded-lg border bg-white px-3.5 py-2.5 text-sm text-slate-950 shadow-sm transition placeholder:text-slate-400 focus:outline-none focus:ring-4 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:bg-slate-900 dark:text-slate-50 dark:placeholder:text-slate-500 dark:disabled:bg-slate-800";
+  "w-full rounded-lg border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-sm text-slate-100 shadow-sm transition placeholder:text-slate-500 focus:outline-none focus:ring-4 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500 dark:bg-slate-900 dark:text-slate-50 dark:placeholder:text-slate-500 dark:disabled:bg-slate-800";
 
 export type InputProps = InputHTMLAttributes<HTMLInputElement> & {
   label?: string;
@@ -38,7 +38,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   return (
     <div className="grid gap-1.5">
       {label && (
-        <label htmlFor={inputId} className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+        <label htmlFor={inputId} className="text-xs font-bold uppercase tracking-wider text-slate-200 dark:text-slate-200">
           {label}
         </label>
       )}

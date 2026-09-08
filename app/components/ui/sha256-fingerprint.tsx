@@ -18,13 +18,15 @@ export function Sha256Fingerprint({ hash, truncate = true, className = '' }: Sha
       <span className="text-xs uppercase font-semibold tracking-wider" style={{ color: 'var(--text-secondary, #7a7d82)' }}>
         SHA-256
       </span>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap min-w-0">
         <span 
-          className="text-sm"
+          className="text-sm font-mono break-all select-all min-w-0"
           title={hash}
           style={{ 
             fontFamily: 'var(--font-mono, monospace)',
-            color: 'var(--neutral-700, #e8e6e3)'
+            color: 'var(--accent-active, #22d3ee)',
+            wordBreak: 'break-all',
+            overflowWrap: 'anywhere',
           }}
         >
           {displayHash}

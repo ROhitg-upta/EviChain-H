@@ -23,32 +23,49 @@
   --neutral-200: #1e2228;
   --neutral-300: #2a2f36;
   --neutral-400: #3d4350;
-  --neutral-500: #5c6370;
-  --neutral-600: #7a7d82;
-  --neutral-700: #9ca0a6;
-  --neutral-800: #c4c7cc;
-  --neutral-900: #e8e6e3;
+  --neutral-500: #64748b;
+  --neutral-600: #94a3b8;  /* Slate-400: high contrast (7.3:1) readable secondary */
+  --neutral-700: #cbd5e1;  /* Slate-300 */
+  --neutral-800: #e2e8f0;  /* Slate-200 */
+  --neutral-900: #f8fafc;  /* Slate-50 crisp readable white */
 
   /* ─── Semantic accents ───────────────────────────────────────── */
   /* Verified / safe — acid lime */
   --accent-verified: #b5f542;
   --accent-verified-dim: rgba(181, 245, 66, 0.12);
   --accent-verified-border: rgba(181, 245, 66, 0.25);
+  --accent-safe: var(--accent-verified);
+  --accent-safe-dim: var(--accent-verified-dim);
+  --accent-safe-border: var(--accent-verified-border);
 
   /* Active / technical — electric cyan */
   --accent-active: #22d3ee;
   --accent-active-dim: rgba(34, 211, 238, 0.10);
   --accent-active-border: rgba(34, 211, 238, 0.25);
+  --accent-info: #0ea5e9;
+  --accent-info-dim: rgba(14, 165, 233, 0.12);
+  --accent-info-border: rgba(14, 165, 233, 0.28);
 
   /* Pending / uncertain — warm amber */
   --accent-pending: #fbbf24;
-  --accent-pending-dim: rgba(251, 191, 36, 0.10);
-  --accent-pending-border: rgba(251, 191, 36, 0.25);
+  --accent-pending-dim: rgba(251, 191, 36, 0.12);
+  --accent-pending-border: rgba(251, 191, 36, 0.28);
+  --accent-warning: #f59e0b;
+  --accent-warning-dim: rgba(245, 158, 11, 0.12);
+  --accent-warning-border: rgba(245, 158, 11, 0.28);
 
   /* Alert / danger — hot coral */
   --accent-danger: #f43f5e;
-  --accent-danger-dim: rgba(244, 63, 94, 0.10);
-  --accent-danger-border: rgba(244, 63, 94, 0.25);
+  --accent-danger-dim: rgba(244, 63, 94, 0.12);
+  --accent-danger-border: rgba(244, 63, 94, 0.28);
+  --accent-alert: var(--accent-danger);
+  --accent-alert-dim: var(--accent-danger-dim);
+  --accent-alert-border: var(--accent-danger-border);
+
+  /* Primary interactive accent */
+  --accent-primary: var(--brand-600);
+  --accent-primary-dim: rgba(74, 190, 148, 0.12);
+  --accent-primary-border: rgba(74, 190, 148, 0.28);
 
   /* ─── Semantic — success ─────────────────────────────────────── */
   --success-bg:     var(--accent-verified-dim);
@@ -72,15 +89,18 @@
 
   /* ─── Surface tokens ─────────────────────────────────────────── */
   --surface-base:    #0f1114;   /* page background — graphite black */
+  --surface-page:    var(--surface-base);
   --surface-raised:  #181b20;   /* cards, panels — deep charcoal */
+  --surface-card:    var(--surface-raised);
   --surface-overlay: #1e2228;   /* modals, dropdowns */
   --surface-sunken:  #0a0c0e;   /* input backgrounds */
   --surface-brand:   var(--brand-600);
 
   /* ─── Text tokens ────────────────────────────────────────────── */
-  --text-primary:   var(--neutral-900);  /* #e8e6e3 warm off-white */
-  --text-secondary: var(--neutral-600);  /* #7a7d82 */
-  --text-disabled:  var(--neutral-500);  /* #5c6370 */
+  --text-primary:   var(--neutral-900);  /* #f8fafc crisp readable white */
+  --text-secondary: var(--neutral-600);  /* #94a3b8 high-contrast readable slate */
+  --text-muted:     #94a3b8;             /* #94a3b8 Slate-400 (7.3:1 contrast) */
+  --text-disabled:  #64748b;             /* #64748b Slate-500 */
   --text-inverse:   var(--neutral-50);   /* #0a0c0e */
   --text-brand:     var(--brand-600);    /* #4abe94 */
 
@@ -176,16 +196,20 @@
   --chart-6: #a78bfa;
 
   /* ─── Legacy aliases (keep old CSS working during migration) ─── */
-  --ink:        var(--neutral-900);
-  --muted:      var(--neutral-600);
-  --line:       var(--border-default);
-  --paper:      var(--surface-base);
-  --card:       var(--surface-raised);
-  --green:      var(--brand-600);
-  --green-dark: var(--brand-500);
-  --green-soft: var(--brand-100);
-  --amber:      var(--accent-pending);
-  --red:        var(--accent-danger);
+  --ink:              var(--neutral-900);
+  --muted:            var(--neutral-600);
+  --line:             var(--border-default);
+  --paper:            var(--surface-base);
+  --card:             var(--surface-raised);
+  --green:            var(--brand-600);
+  --green-dark:       var(--brand-500);
+  --green-soft:       var(--brand-100);
+  --amber:            var(--accent-pending);
+  --red:              var(--accent-danger);
+  --mono:             var(--font-mono);
+  --shadow-surface:   var(--shadow-2);
+  --transition-fast:  var(--duration-fast) var(--ease-out);
+  --transition-base:  var(--duration-base) var(--ease-out);
 }
 
 /* ─── Reduced-motion ─────────────────────────────────────────────── */

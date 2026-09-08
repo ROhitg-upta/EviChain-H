@@ -118,10 +118,10 @@ export default function AdminSettingsPage() {
           </div>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)", gap: 24, alignItems: "start" }}>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           
           {/* Main Form */}
-          <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <form onSubmit={handleSave} className="lg:col-span-2 flex flex-col gap-5">
             
             {/* Organization Identity */}
             <div className="panel" style={{ padding: 20, background: "var(--surface-card)", border: "1px solid var(--border-subtle)", borderRadius: 8 }}>
@@ -156,7 +156,7 @@ export default function AdminSettingsPage() {
                 <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)" }}>Retention & Evidence Custody Policy</h2>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
                     Evidence Retention Window (Days)
