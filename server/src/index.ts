@@ -51,6 +51,8 @@ const rawOrigins = [
   process.env.CLIENT_URL,
   process.env.CORS_ORIGIN,
   process.env.FRONTEND_URL,
+  process.env.ALLOWED_ORIGIN,
+  "https://evi-chain-h.vercel.app",
   "http://localhost:3000",
   "http://127.0.0.1:3000",
   "http://localhost:3001",
@@ -80,7 +82,8 @@ app.use(
         allowedOrigins.has(normalized) ||
         process.env.NODE_ENV !== "production" ||
         normalized.startsWith("http://localhost:") ||
-        normalized.startsWith("http://127.0.0.1:")
+        normalized.startsWith("http://127.0.0.1:") ||
+        normalized.endsWith(".vercel.app")
       ) {
         return callback(null, true);
       }
@@ -104,9 +107,9 @@ app.use(cookieParser());
 app.use(express.json());
 
 // ═══════════════════════════════════════════════════════════════════
-// GET /health — Health Check & Database Diagnostic Endpoint
+// GET /health & /api/health — Health Check & Database Diagnostic Endpoint
 // ═══════════════════════════════════════════════════════════════════
-app.get("/health", async (_req: Request, res: Response) => {
+const handleHealthCheck = async (_req: Request, res: Response) => {
   let dbStatus = "connected";
   try {
     // Quick bounded heartbeat query
@@ -136,12 +139,15 @@ app.get("/health", async (_req: Request, res: Response) => {
     database: dbStatus,
     ...(isHealthy ? {} : { message: "Database connection unavailable" }),
   });
-});
+};
+
+app.get("/health", handleHealthCheck);
+app.get("/api/health", handleHealthCheck);
 
 // ═══════════════════════════════════════════════════════════════════
-// GET /health/deep — Deep Diagnostic Health Check (DB + Storage)
+// GET /health/deep & /api/health/deep — Deep Diagnostic Health Check (DB + Storage)
 // ═══════════════════════════════════════════════════════════════════
-app.get("/health/deep", async (_req: Request, res: Response) => {
+const handleDeepHealthCheck = async (_req: Request, res: Response) => {
   let dbStatus = "connected";
   let storageStatus = "accessible";
 
@@ -165,6 +171,7 @@ app.get("/health/deep", async (_req: Request, res: Response) => {
   const statusCode = isHealthy ? 200 : 503;
 
   return res.status(statusCode).json({
+    status: isHealthy ? "ok" : "degraded",
     ok: isHealthy,
     service: "evichain-api",
     environment: process.env.NODE_ENV || "development",
@@ -173,24 +180,52 @@ app.get("/health/deep", async (_req: Request, res: Response) => {
     storage: storageStatus,
     ...(isHealthy ? {} : { message: "One or more core services are degraded" }),
   });
-});
+};
+
+app.get("/health/deep", handleDeepHealthCheck);
+app.get("/api/health/deep", handleDeepHealthCheck);
 
 // ═══════════════════════════════════════════════════════════════════
-// Route Manifest
+// Route Manifest (Mounted at root and /api for full reverse-proxy tolerance)
 // ═══════════════════════════════════════════════════════════════════
 app.use("/auth",          authLimiter, authRoutes);
+app.use("/api/auth",      authLimiter, authRoutes);
+
 app.use("/evidence",      evidenceRoutes);
+app.use("/api/evidence",  evidenceRoutes);
+
 app.use("/cases",         casesRoutes);
+app.use("/api/cases",     casesRoutes);
+
 app.use("/audit",         auditRoutes);
+app.use("/api/audit",     auditRoutes);
+
 app.use("/public",        publicRoutes);
+app.use("/api/public",    publicRoutes);
+
 app.use("/reports",       reportsRoutes);
+app.use("/api/reports",   reportsRoutes);
+
 app.use("/search",        searchRoutes);
+app.use("/api/search",    searchRoutes);
+
 app.use("/users",         usersRoutes);
+app.use("/api/users",     usersRoutes);
+
 app.use("/notifications", notificationsRoutes);
+app.use("/api/notifications", notificationsRoutes);
+
 app.use("/admin",         adminRoutes);
+app.use("/api/admin",     adminRoutes);
+
 app.use("/profile",       profileRoutes);
+app.use("/api/profile",   profileRoutes);
+
 app.use("/workspace",     workspaceRoutes);
+app.use("/api/workspace", workspaceRoutes);
+
 app.use("/",              integrityRoutes);
+app.use("/api",           integrityRoutes);
 
 // Structured 404 fallback for unmatched API routes
 app.use((_req: Request, res: Response) => {

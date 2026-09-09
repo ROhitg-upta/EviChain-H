@@ -3,7 +3,15 @@
  * Single source of truth for frontend API base URLs, health checks, and error classification.
  */
 
-// ─── Base URL Resolution ──────────────────────────────────────────────────────
+// ─── Base URL & Path Resolution ───────────────────────────────────────────────
+
+/**
+ * Returns whether NEXT_PUBLIC_API_URL was explicitly provided at build time / runtime.
+ */
+export function isApiConfigured(): boolean {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  return typeof envUrl === "string" && envUrl.trim().length > 0;
+}
 
 /**
  * Returns the sanitized base URL for all API requests.
@@ -40,13 +48,39 @@ export function getApiBaseUrl(): string {
 }
 
 /**
- * Build a fully qualified API URL for a given relative endpoint path.
+ * Normalizes and builds a fully qualified, sanitized API URL.
+ * Handles paths with or without leading slash, eliminates duplicate slashes,
+ * and prevents duplicate `/api` prefixing.
  */
-export function getApiUrl(path: string): string {
-  const base = getApiBaseUrl();
-  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+export function buildApiUrl(path: string): string {
+  const base = getApiBaseUrl().replace(/\/+$/, "");
+  let cleanPath = (path || "").trim();
+
+  // If already an absolute http/https URL, return it directly
+  if (/^https?:\/\//i.test(cleanPath)) {
+    return cleanPath;
+  }
+
+  // Ensure single leading slash
+  if (!cleanPath.startsWith("/")) {
+    cleanPath = `/${cleanPath}`;
+  }
+
+  // Normalize any multiple contiguous slashes in the path
+  cleanPath = cleanPath.replace(/\/+/g, "/");
+
+  // Prevent duplicate /api prefixes if both base ends in /api and path starts with /api/
+  if (base.toLowerCase().endsWith("/api") && cleanPath.toLowerCase().startsWith("/api/")) {
+    cleanPath = cleanPath.slice(4);
+  }
+
   return `${base}${cleanPath}`;
 }
+
+/**
+ * Alias for buildApiUrl for backwards compatibility.
+ */
+export const getApiUrl = buildApiUrl;
 
 /**
  * Check if the active API URL is pointing to a local development instance.
@@ -54,6 +88,23 @@ export function getApiUrl(path: string): string {
 export function isLocalApi(): boolean {
   const base = getApiBaseUrl().toLowerCase();
   return base.includes("localhost") || base.includes("127.0.0.1") || base.includes("0.0.0.0");
+}
+
+/**
+ * Diagnostic info for debugging connectivity safely without leaking secrets.
+ */
+export function getApiDiagnostics(): {
+  configuredUrl: string;
+  isConfigured: boolean;
+  isLocal: boolean;
+  environment: string;
+} {
+  return {
+    configuredUrl: getApiBaseUrl(),
+    isConfigured: isApiConfigured(),
+    isLocal: isLocalApi(),
+    environment: process.env.NODE_ENV || "development",
+  };
 }
 
 // ─── Error Classification & User Messages ─────────────────────────────────────
@@ -81,9 +132,11 @@ export interface ClassifiedApiError {
  * Classifies an API error and generates an actionable, environment-appropriate message.
  * Never outputs raw "port 4000" guidance in remote production environments.
  */
-export function classifyApiError(err: unknown, statusCode?: number): ClassifiedApiError {
+export function classifyApiError(err: unknown, statusCode?: number, endpointPath?: string): ClassifiedApiError {
   const base = getApiBaseUrl();
   const local = isLocalApi();
+  const configured = isApiConfigured();
+  const pathLabel = endpointPath ? ` (${endpointPath})` : "";
 
   // If HTTP status code is provided:
   if (typeof statusCode === "number") {
@@ -104,11 +157,25 @@ export function classifyApiError(err: unknown, statusCode?: number): ClassifiedA
       };
     }
     if (statusCode === 404) {
+      if (local) {
+        return {
+          kind: "NOT_FOUND",
+          message: `API endpoint not found (404) at ${base}${pathLabel}. Ensure the backend server is running on port 4000 (e.g. 'npm run dev').`,
+          statusCode,
+          originalError: err,
+        };
+      }
+      if (!configured) {
+        return {
+          kind: "NOT_FOUND",
+          message: `API endpoint not found (404)${pathLabel}. Frontend is running in production but NEXT_PUBLIC_API_URL is missing. Set NEXT_PUBLIC_API_URL in Vercel Dashboard -> Settings -> Environment Variables to your live backend URL.`,
+          statusCode,
+          originalError: err,
+        };
+      }
       return {
         kind: "NOT_FOUND",
-        message: local
-          ? `API endpoint not found (404) at ${base}. Please ensure the backend is running with 'npm run dev' on port 4000.`
-          : `API endpoint not found (404). If accessing a deployed frontend, please ensure NEXT_PUBLIC_API_URL is configured to point to your live backend server.`,
+        message: `API endpoint not found (404) at ${base}${pathLabel}. Please verify that your live backend server is running and exposes this route.`,
         statusCode,
         originalError: err,
       };
@@ -181,8 +248,8 @@ export function classifyApiError(err: unknown, statusCode?: number): ClassifiedA
 /**
  * Convenience helper to return just the formatted message.
  */
-export function formatApiErrorMessage(err: unknown, statusCode?: number): string {
-  return classifyApiError(err, statusCode).message;
+export function formatApiErrorMessage(err: unknown, statusCode?: number, endpointPath?: string): string {
+  return classifyApiError(err, statusCode, endpointPath).message;
 }
 
 // ─── Health Check Probing ─────────────────────────────────────────────────────

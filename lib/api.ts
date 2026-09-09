@@ -1,6 +1,10 @@
 import {
   getApiBaseUrl,
   getApiUrl,
+  buildApiUrl,
+  getApiDiagnostics,
+  isApiConfigured,
+  isLocalApi,
   formatApiErrorMessage,
   classifyApiError,
   checkApiHealth,
@@ -12,6 +16,10 @@ import {
 export {
   getApiBaseUrl,
   getApiUrl,
+  buildApiUrl,
+  getApiDiagnostics,
+  isApiConfigured,
+  isLocalApi,
   formatApiErrorMessage,
   classifyApiError,
   checkApiHealth,
@@ -134,12 +142,12 @@ export type UploadEvidenceResult = {
  * If the server returns HTML (e.g. a Next.js 404 page or an unhandled Express error)
  * we surface a human-readable message instead of throwing "Unexpected token '<'".
  */
-async function safeJson<T>(res: Response): Promise<T> {
+async function safeJson<T>(res: Response, endpointPath?: string): Promise<T> {
   const text = await res.text();
   const ct = res.headers.get("content-type") ?? "";
 
   if (!ct.includes("application/json")) {
-    throw new Error(formatApiErrorMessage(null, res.status));
+    throw new Error(formatApiErrorMessage(null, res.status, endpointPath));
   }
 
   try {
@@ -190,7 +198,8 @@ let refreshPromise: Promise<string | null> | null = null;
  */
 export async function refreshToken(): Promise<AuthResponse | null> {
   try {
-    const res = await fetch(`${API_URL}/auth/refresh`, {
+    const url = buildApiUrl("/auth/refresh");
+    const res = await fetch(url, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -200,7 +209,7 @@ export async function refreshToken(): Promise<AuthResponse | null> {
       return null;
     }
 
-    const data = await safeJson<AuthResponse>(res);
+    const data = await safeJson<AuthResponse>(res, "/auth/refresh");
     if (typeof window !== "undefined" && data.accessToken) {
       localStorage.setItem("evichain-token-v1", data.accessToken);
       if (data.refreshToken) {
@@ -244,11 +253,12 @@ async function performSilentRefresh(): Promise<string | null> {
 /** Shared fetch wrapper: throws on network error with a friendly message.
  *  Includes credentials by default, automatically retries network failures, and refreshes token on 401. */
 async function apiFetch(
-  url: string,
+  urlOrPath: string,
   init?: RequestInit,
   isRetry = false,
   networkAttempt = 0,
 ): Promise<Response> {
+  const url = buildApiUrl(urlOrPath);
   const mergedInit: RequestInit = {
     ...init,
     credentials: init?.credentials ?? "include",
@@ -261,9 +271,9 @@ async function apiFetch(
     if (networkAttempt < 2) {
       const backoffMs = (networkAttempt + 1) * 350;
       await new Promise((r) => setTimeout(r, backoffMs));
-      return apiFetch(url, init, isRetry, networkAttempt + 1);
+      return apiFetch(urlOrPath, init, isRetry, networkAttempt + 1);
     }
-    throw new Error(formatApiErrorMessage(err));
+    throw new Error(formatApiErrorMessage(err, undefined, urlOrPath));
   }
 
   // Handle 401 Unauthorized with token refresh retry
@@ -275,7 +285,7 @@ async function apiFetch(
       const headers = new Headers(mergedInit.headers);
       headers.set("Authorization", `Bearer ${newAccessToken}`);
 
-      return apiFetch(url, { ...mergedInit, headers }, true, 0);
+      return apiFetch(urlOrPath, { ...mergedInit, headers }, true, 0);
     }
 
     // Refresh failed or returned null — clear local session and redirect
@@ -330,7 +340,8 @@ export async function register(
 
 export async function logout(token?: string | null): Promise<void> {
   try {
-    await fetch(`${API_URL}/auth/logout`, {
+    const url = buildApiUrl("/auth/logout");
+    await fetch(url, {
       method: "POST",
       credentials: "include",
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -497,8 +508,10 @@ export function uploadEvidence(
 ): Promise<UploadEvidenceResult> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const endpoint = "/evidence";
+    const targetUrl = buildApiUrl(endpoint);
 
-    xhr.open("POST", `${API_URL}/evidence`);
+    xhr.open("POST", targetUrl);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     if (idempotencyKey) {
       xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
@@ -515,7 +528,7 @@ export function uploadEvidence(
       if (!ct.includes("application/json")) {
         reject(
           new Error(
-            `Server returned ${xhr.status} (non-JSON). Is the backend running?`,
+            formatApiErrorMessage(null, xhr.status, endpoint),
           ),
         );
         return;
@@ -539,7 +552,7 @@ export function uploadEvidence(
 
     xhr.onerror = () =>
       reject(
-        new Error(formatApiErrorMessage(new TypeError("Failed to fetch"))),
+        new Error(formatApiErrorMessage(new TypeError("Failed to fetch"), undefined, endpoint)),
       );
 
     xhr.send(formData);
@@ -591,9 +604,12 @@ export async function uploadCaseEvidence(
   if (metadata?.evidenceType) formData.append("evidenceType", metadata.evidenceType);
   if (metadata?.ownerOrg) formData.append("ownerOrg", metadata.ownerOrg);
 
+  const endpoint = `/cases/${caseId}/evidence`;
+  const targetUrl = buildApiUrl(endpoint);
+
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${API_URL}/cases/${caseId}/evidence`);
+    xhr.open("POST", targetUrl);
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
     if (idempotencyKey) {
       xhr.setRequestHeader("Idempotency-Key", idempotencyKey);
@@ -625,7 +641,7 @@ export async function uploadCaseEvidence(
     };
 
     xhr.onerror = () => {
-      reject(new Error("Network connection error during upload."));
+      reject(new Error(formatApiErrorMessage(new TypeError("Failed to fetch"), undefined, endpoint)));
     };
 
     xhr.send(formData);
@@ -708,9 +724,12 @@ export function verifyEvidenceFile(
   file: File,
   onProgress?: (pct: number) => void,
 ): Promise<PublicVerifyResult> {
+  const endpoint = "/public/verify/file";
+  const targetUrl = buildApiUrl(endpoint);
+
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${API_URL}/public/verify/file`);
+    xhr.open("POST", targetUrl);
 
     if (xhr.upload && onProgress) {
       xhr.upload.onprogress = (e) => {
@@ -731,7 +750,7 @@ export function verifyEvidenceFile(
           reject(new Error("Too many verification requests. Please try again in one minute."));
           return;
         }
-        reject(new Error(formatApiErrorMessage(null, xhr.status)));
+        reject(new Error(formatApiErrorMessage(null, xhr.status, endpoint)));
         return;
       }
 
@@ -752,7 +771,7 @@ export function verifyEvidenceFile(
     };
 
     xhr.onerror = () => {
-      reject(new Error(formatApiErrorMessage(new TypeError("Failed to fetch"))));
+      reject(new Error(formatApiErrorMessage(new TypeError("Failed to fetch"), undefined, endpoint)));
     };
 
     const fd = new FormData();
