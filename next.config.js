@@ -5,6 +5,15 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: [],
   },
+  async rewrites() {
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
+    return [
+      {
+        source: "/api/proxy/:path*",
+        destination: `${backendUrl.replace(/\/+$/, "")}/:path*`,
+      },
+    ];
+  },
 };
 
 

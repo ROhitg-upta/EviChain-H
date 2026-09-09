@@ -1,5 +1,26 @@
-const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
-const API_URL = RAW_API_URL.replace(/\/+$/, "");
+import {
+  getApiBaseUrl,
+  getApiUrl,
+  formatApiErrorMessage,
+  classifyApiError,
+  checkApiHealth,
+  type ApiHealthStatus,
+  type ClassifiedApiError,
+  type ApiErrorKind,
+} from "./api-config";
+
+export {
+  getApiBaseUrl,
+  getApiUrl,
+  formatApiErrorMessage,
+  classifyApiError,
+  checkApiHealth,
+  type ApiHealthStatus,
+  type ClassifiedApiError,
+  type ApiErrorKind,
+};
+
+const API_URL = getApiBaseUrl();
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -119,11 +140,9 @@ async function safeJson<T>(res: Response): Promise<T> {
 
   if (!ct.includes("application/json")) {
     if (res.status === 404) {
-      throw new Error("The requested resource or endpoint was not found.");
+      throw new Error("The requested resource or endpoint was not found (404).");
     }
-    throw new Error(
-      `Unable to connect to the EviChain API (HTTP ${res.status}). Confirm that the backend is running on port 4000.`,
-    );
+    throw new Error(formatApiErrorMessage(null, res.status));
   }
 
   try {
@@ -247,9 +266,7 @@ async function apiFetch(
       await new Promise((r) => setTimeout(r, backoffMs));
       return apiFetch(url, init, isRetry, networkAttempt + 1);
     }
-    throw new Error(
-      "Unable to connect to the EviChain API. Confirm that the backend is running on port 4000.",
-    );
+    throw new Error(formatApiErrorMessage(err));
   }
 
   // Handle 401 Unauthorized with token refresh retry
@@ -525,7 +542,7 @@ export function uploadEvidence(
 
     xhr.onerror = () =>
       reject(
-        new Error("Cannot reach the server — is the backend running on port 4000?"),
+        new Error(formatApiErrorMessage(new TypeError("Failed to fetch"))),
       );
 
     xhr.send(formData);
@@ -717,7 +734,7 @@ export function verifyEvidenceFile(
           reject(new Error("Too many verification requests. Please try again in one minute."));
           return;
         }
-        reject(new Error(`Server returned HTTP ${xhr.status} (non-JSON). Confirm backend on port 4000.`));
+        reject(new Error(formatApiErrorMessage(null, xhr.status)));
         return;
       }
 
@@ -738,7 +755,7 @@ export function verifyEvidenceFile(
     };
 
     xhr.onerror = () => {
-      reject(new Error("Unable to connect to the EviChain API. Confirm that the backend is running on port 4000."));
+      reject(new Error(formatApiErrorMessage(new TypeError("Failed to fetch"))));
     };
 
     const fd = new FormData();

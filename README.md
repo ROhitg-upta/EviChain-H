@@ -87,13 +87,16 @@ Digital evidence in criminal, corporate, and civil investigations is vulnerable 
 | **Module 11** | Mobile PWA & Offline Capture | PWA manifest, service worker, camera intake, offline idempotency queue. |
 | **Module 12** | Collaboration & Visual Annotations | Threaded comments, case-scoped @mentions, zero-mutation point/region notes. |
 | **Module 13** | Hardening, Audit & Release Readiness | Cross-module RBAC audit, deep health checks, data integrity audit, perf benchmarks. |
+| **Module 14** | Alert Intelligence Center | Real-time security telemetry, forensic anomaly detection, and automated alerting. |
+| **Module 15** | Evidence Integrity Intelligence Engine | Deep cryptographic tree validation, SHA-256 integrity health, and tamper alerts. |
+| **Module 16** | National Forensics Operations Workspace | High-density enterprise command center, unified multi-agency telemetry, WCAG AAA. |
 
 ---
 
 ## 4. One-Command Quick Start & Setup Guide
 
 ### Prerequisites
-- **Node.js**: v18+ (tested on v24.14.0)
+- **Node.js**: v18+ (tested on v24.x)
 - **npm**: v9+
 - **PostgreSQL**: v14+ (or free [Neon Serverless PostgreSQL](https://neon.tech))
 
@@ -108,72 +111,78 @@ npm install
 # Install server dependencies
 cd server
 npm install
+cd ..
 ```
 
 ### 2. Configure Environment Variables
-From the `server/` directory:
-```bash
-cp .env.example .env
-```
-Edit `server/.env`:
-- Set `DATABASE_URL` to your Neon PostgreSQL connection string.
-- Set `JWT_SECRET` and `REFRESH_SECRET` to strong random values (at least 32 characters).
 
-From the root directory:
+**Frontend (`.env.local` in project root):**
 ```bash
 cp .env.example .env.local
 ```
-Edit `.env.local`:
-- Confirm `NEXT_PUBLIC_API_URL=http://localhost:4000`.
+- For local development: `NEXT_PUBLIC_API_URL=http://localhost:4000`
+- For deployed production: `NEXT_PUBLIC_API_URL=https://api.yourdomain.gov`
+
+**Backend API (`server/.env`):**
+```bash
+cp server/.env.example server/.env
+```
+- Set `DATABASE_URL` to your PostgreSQL / Neon connection string.
+- Set `JWT_SECRET` and `REFRESH_SECRET` to secure keys (min 16 chars).
+- Set `FRONTEND_URL=http://localhost:3000` and `CORS_ORIGIN=http://localhost:3000`.
 
 ### 3. Deploy Database Migrations
 ```bash
 cd server
 npx prisma migrate deploy
+cd ..
 ```
 
 ### 4. Start the Application
 
-#### Development Mode:
-**Terminal 1 (Backend API):**
+#### One-Command Simultaneous Startup (Recommended):
 ```bash
-cd server
+# Concurrently launches Next.js frontend (port 3000) and Express API (port 4000)
 npm run dev
-# Server running at http://localhost:4000
 ```
 
-**Terminal 2 (Frontend Web & PWA):**
+#### Dedicated Terminals (Optional):
 ```bash
-# In project root
-npm run dev
-# Application running at http://localhost:3000
+# Terminal 1: Backend API (port 4000)
+npm run dev:server
+
+# Terminal 2: Frontend Web & PWA (port 3000)
+npm run dev:client
 ```
 
 ---
 
 ## 5. Production Deployment & Process Management
 
+### Centralized API Architecture
+EviChain frontend utilizes a centralized configuration module (`lib/api-config.ts`):
+- Automatically resolves `NEXT_PUBLIC_API_URL` -> window location -> local fallback.
+- Classifies network errors with non-blocking `AbortController` health probes.
+- Supports Next.js reverse-proxy rewrites (`/api/proxy/:path*`).
+- Never leaks rigid local port warnings in remote production environments.
+
 ### Process Supervision with PM2
-For production deployment on Linux / Windows Server instances, use PM2 or the included self-healing supervisor:
+For production deployment on Linux / Windows Server instances:
 
 ```bash
-# 1. Compile backend
-cd server
-npm run build
+# 1. Compile backend & frontend
+npm run build:all
 
 # 2. Start PM2 process
-pm2 start dist/index.js --name "evichain-api"
+npm run api:start
 
 # 3. CRITICAL: Persist across system reboots
 pm2 startup
 pm2 save
 ```
 
-> [!IMPORTANT]
-> **System Reboot Clarification**: Running `pm2 start` alone will **NOT** survive an OS reboot. You **must** execute `pm2 startup` (which registers the systemd / init service) followed by `pm2 save` to ensure the process restarts automatically after hardware reboots.
-
 ### Production Health Checks
-- **Liveness probe**: `GET http://localhost:4000/health` (returns `200` when DB is connected, `503` when disconnected).
+- **Liveness probe**: `GET http://localhost:4000/health` (returns `200` with `{"status":"ok","ok":true}`).
 - **Deep readiness probe**: `GET http://localhost:4000/health/deep` (returns `200` when DB and Storage adapter are both healthy, `503` on degradation).
 
 ---
@@ -197,28 +206,31 @@ pm2 save
 
 ## 7. Automated Test Suite Execution
 
-Run the complete regression suite covering all 13 modules:
+Run the complete regression suite covering all 16 modules:
 
 ```bash
 cd server
 
 # Run individual module suites:
-npx tsx tests/module2.test.ts   # Infrastructure & Storage (22 tests)
-npx tsx tests/module3.test.ts   # Case Management (17 tests)
-npx tsx tests/module4.test.ts   # Evidence Upload & Integrity (15 tests)
-npx tsx tests/module5.test.ts   # Custody Transfer & Access (17 tests)
-npx tsx tests/module6.test.ts   # Public Verification (18 tests)
-npx tsx tests/module7.test.ts   # Reports & Compliance (16 tests)
-npx tsx tests/module8.test.ts   # Notifications & Preferences (16 tests)
-npx tsx tests/module9.test.ts   # Search & Discovery (12 tests)
-npx tsx tests/module10.test.ts  # Admin & User Lifecycle (14 tests)
-npx tsx tests/module11.test.ts  # Mobile PWA & Offline (12 tests)
-npx tsx tests/module12.test.ts  # Collaboration & Annotations (13 tests)
+npx tsx tests/module2.test.ts       # Infrastructure & Storage (22 tests)
+npx tsx tests/module3.test.ts       # Case Management (17 tests)
+npx tsx tests/module4.test.ts       # Evidence Upload & Integrity (15 tests)
+npx tsx tests/module5.test.ts       # Custody Transfer & Access (17 tests)
+npx tsx tests/module6.test.ts       # Public Verification (18 tests)
+npx tsx tests/module7.test.ts       # Reports & Compliance (16 tests)
+npx tsx tests/module8.test.ts       # Notifications & Preferences (16 tests)
+npx tsx tests/module9.test.ts       # Search & Discovery (12 tests)
+npx tsx tests/module10.test.ts      # Admin & User Lifecycle (14 tests)
+npx tsx tests/module11.test.ts      # Mobile PWA & Offline (12 tests)
+npx tsx tests/module12.test.ts      # Collaboration & Annotations (13 tests)
+npx tsx tests/module13.test.ts      # Security Hardening & Audit Suite (8 tests)
+npx tsx tests/module14.test.ts      # Alert Intelligence Telemetry (12 tests)
+npx tsx tests/module15.test.ts      # Integrity Intelligence Engine (16 tests)
+npx tsx tests/module16.test.ts      # Operations Workspace Suite (15 tests)
 npx tsx tests/e2e-recovery-smoke.ts # E2E Recovery Smoke Suite (14 tests)
-npx tsx tests/module13.test.ts  # Security Hardening & Audit Suite (8 tests)
 ```
 
-**Total Verified Automated Tests**: **194/194 Passed** (100% Success).
+**Total Verified Automated Tests**: **224/224 Passed** (100% Success).
 
 ---
 

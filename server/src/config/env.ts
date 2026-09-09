@@ -55,6 +55,7 @@ const envSchema = z.object({
   REFRESH_EXPIRES_IN: z.string().default("7d"),
   CLIENT_URL: z.string().optional(),
   CORS_ORIGIN: z.string().optional(),
+  FRONTEND_URL: z.string().optional(),
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_PATH: z.string().default("storage/uploads"),
   MAX_FILE_SIZE_BYTES: z.coerce.number().default(50 * 1024 * 1024), // 50MB

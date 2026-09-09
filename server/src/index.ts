@@ -46,22 +46,56 @@ const authLimiter = createRateLimiter({
   message: "Too many authentication attempts. Please try again in one minute.",
 });
 
-const allowedOrigins = [
+// Parse configured frontend origins from environment variables
+const rawOrigins = [
   process.env.CLIENT_URL,
   process.env.CORS_ORIGIN,
+  process.env.FRONTEND_URL,
   "http://localhost:3000",
   "http://127.0.0.1:3000",
-].filter(Boolean) as string[];
+  "http://localhost:3001",
+  "http://127.0.0.1:3001",
+];
+
+const allowedOrigins = new Set<string>();
+for (const item of rawOrigins) {
+  if (!item) continue;
+  for (const part of item.split(",")) {
+    const trimmed = part.trim().replace(/\/+$/, "");
+    if (trimmed) {
+      allowedOrigins.add(trimmed);
+    }
+  }
+}
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
+      // Allow requests with no origin (like mobile apps, curl, server-to-server, health checks)
+      if (!origin) {
         return callback(null, true);
       }
-      return callback(new Error("Not allowed by CORS"));
+      const normalized = origin.replace(/\/+$/, "");
+      if (
+        allowedOrigins.has(normalized) ||
+        process.env.NODE_ENV !== "production" ||
+        normalized.startsWith("http://localhost:") ||
+        normalized.startsWith("http://127.0.0.1:")
+      ) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Not allowed by CORS: ${origin}`));
     },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Idempotency-Key",
+      "Accept",
+      "Origin",
+    ],
   }),
 );
 
@@ -94,6 +128,7 @@ app.get("/health", async (_req: Request, res: Response) => {
   const statusCode = isHealthy ? 200 : 503;
 
   return res.status(statusCode).json({
+    status: isHealthy ? "ok" : "degraded",
     ok: isHealthy,
     service: "evichain-api",
     environment: process.env.NODE_ENV || "development",
