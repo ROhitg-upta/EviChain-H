@@ -528,6 +528,55 @@ export default function ProfilePage() {
                 </div>
               </div>
             </div>
+
+            {/* Workspace Personalization Card */}
+            <div className="panel" style={{ padding: 24, background: "var(--surface-card)", border: "1px solid var(--border-subtle)", borderRadius: 8, marginTop: 24 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>
+                Workspace Personalization & Operations Console
+              </h2>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
+                Configure UI layout density and default sorting preferences for your operations environment.
+              </p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+                    UI Information Density
+                  </label>
+                  <select
+                    defaultValue={typeof window !== "undefined" ? localStorage.getItem("evichain_ws_density") || "comfortable" : "comfortable"}
+                    onChange={(e) => {
+                      localStorage.setItem("evichain_ws_density", e.target.value);
+                      toast({ type: "info", title: "Layout Preference Saved", message: `Workspace density set to ${e.target.value}.` });
+                    }}
+                    className="input"
+                    style={{ width: "100%", fontSize: 13 }}
+                  >
+                    <option value="comfortable">Comfortable (Standard spacing with rich metadata)</option>
+                    <option value="compact">Compact (High density for field operators & small screens)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+                    Default Active Case Sort
+                  </label>
+                  <select
+                    defaultValue={typeof window !== "undefined" ? localStorage.getItem("evichain_ws_case_sort") || "updated" : "updated"}
+                    onChange={(e) => {
+                      localStorage.setItem("evichain_ws_case_sort", e.target.value);
+                      toast({ type: "info", title: "Sorting Preference Saved", message: `Default case sort updated.` });
+                    }}
+                    className="input"
+                    style={{ width: "100%", fontSize: 13 }}
+                  >
+                    <option value="updated">Last Activity (Most recent updates first)</option>
+                    <option value="priority">Priority (Urgent & High cases first)</option>
+                    <option value="readiness">Readiness Score (Lowest score / highest risk first)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

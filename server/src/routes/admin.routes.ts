@@ -27,6 +27,9 @@ const updateStatusSchema = z.object({
 
 const settingsSchema = z.object({
   organizationName: z.string().min(2).max(100).optional(),
+  unitName: z.string().max(100).nullable().optional(),
+  jurisdictionLabel: z.string().max(100).nullable().optional(),
+  classificationLabel: z.string().max(100).optional(),
   retentionPolicyDays: z.number().int().min(30).max(3650).optional(),
   requireMfa: z.boolean().optional(),
   allowPublicVerification: z.boolean().optional(),
@@ -35,6 +38,9 @@ const settingsSchema = z.object({
 
 const DEFAULT_SETTINGS = {
   organizationName: "EviChain Forensic Division",
+  unitName: null,
+  jurisdictionLabel: null,
+  classificationLabel: "AUTHORIZED ACCESS ONLY",
   retentionPolicyDays: 365,
   requireMfa: false,
   allowPublicVerification: true,

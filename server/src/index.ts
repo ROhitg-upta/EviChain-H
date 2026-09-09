@@ -18,6 +18,7 @@ import notificationsRoutes from "./routes/notifications.routes";
 import adminRoutes from "./routes/admin.routes";
 import profileRoutes from "./routes/profile.routes";
 import integrityRoutes from "./routes/integrity.routes";
+import workspaceRoutes from "./routes/workspace.routes";
 import { securityHeaders, createRateLimiter } from "./middleware";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -153,6 +154,7 @@ app.use("/users",         usersRoutes);
 app.use("/notifications", notificationsRoutes);
 app.use("/admin",         adminRoutes);
 app.use("/profile",       profileRoutes);
+app.use("/workspace",     workspaceRoutes);
 app.use("/",              integrityRoutes);
 
 // Structured 404 fallback for unmatched API routes

@@ -11,6 +11,7 @@ import OfflineQueuePanel from "./offline-queue-panel";
 import EvidenceCaptureSheet from "./evidence-capture-sheet";
 import MobileBottomNav from "./mobile-bottom-nav";
 import { getOfflineDrafts } from "@/lib/offline-queue";
+import { getWorkspaceConfig, type WorkspaceConfig } from "@/lib/api";
 
 /* ── Helpers ───────────────────────────────────────────────────────── */
 
@@ -38,11 +39,19 @@ export default function WorkspaceShell({ children, breadcrumbs }: WorkspaceShell
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isCaptureOpen, setIsCaptureOpen] = useState(false);
   const [pendingDraftsCount, setPendingDraftsCount] = useState(0);
+  const [wsConfig, setWsConfig] = useState<WorkspaceConfig | null>(null);
 
   /* Auth guard — redirect if not authenticated */
   useEffect(() => {
     if (!loading && !user) window.location.replace("/login");
   }, [loading, user]);
+
+  /* Load workspace config */
+  useEffect(() => {
+    getWorkspaceConfig()
+      .then(setWsConfig)
+      .catch(() => {});
+  }, []);
 
   /* Check offline drafts count */
   useEffect(() => {
@@ -90,11 +99,18 @@ export default function WorkspaceShell({ children, breadcrumbs }: WorkspaceShell
     <div className="ws-root">
       {/* ── Sidebar ────────────────────────────────────────────────── */}
       <aside className="ws-sidebar" aria-label="Workspace navigation">
-        {/* Brand */}
+        {/* Brand & Agency Context */}
         <div className="ws-sidebar-top">
           <Link href="/" className="ws-brand" aria-label="EviChain home">
             <span className="ws-brand-mark" aria-hidden="true">E</span>
-            <span className="ws-brand-name">EviChain</span>
+            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <span className="ws-brand-name">EviChain</span>
+              {wsConfig?.organizationName && wsConfig.organizationName !== "EviChain Secure Workspace" && (
+                <span style={{ fontSize: "10px", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "160px" }}>
+                  {wsConfig.organizationName}
+                </span>
+              )}
+            </div>
           </Link>
 
           {/* Navigation sections */}
@@ -151,20 +167,44 @@ export default function WorkspaceShell({ children, breadcrumbs }: WorkspaceShell
 
         {/* Top header bar */}
         <header className="ws-topbar">
-          {/* Breadcrumbs */}
-          <nav className="ws-breadcrumbs" aria-label="Breadcrumbs">
-            <Link href="/dashboard" className="ws-breadcrumb-link">Workspace</Link>
-            {breadcrumbs?.map((bc, i) => (
-              <span key={i} className="ws-breadcrumb-item">
-                <span className="ws-breadcrumb-sep" aria-hidden="true">/</span>
-                {bc.href ? (
-                  <Link href={bc.href} className="ws-breadcrumb-link">{bc.label}</Link>
-                ) : (
-                  <span className="ws-breadcrumb-current" aria-current="page">{bc.label}</span>
-                )}
-              </span>
-            ))}
-          </nav>
+          {/* Breadcrumbs & Security Classification Banner */}
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
+            <nav className="ws-breadcrumbs" aria-label="Breadcrumbs">
+              <Link href="/dashboard" className="ws-breadcrumb-link">Workspace</Link>
+              {breadcrumbs?.map((bc, i) => (
+                <span key={i} className="ws-breadcrumb-item">
+                  <span className="ws-breadcrumb-sep" aria-hidden="true">/</span>
+                  {bc.href ? (
+                    <Link href={bc.href} className="ws-breadcrumb-link">{bc.label}</Link>
+                  ) : (
+                    <span className="ws-breadcrumb-current" aria-current="page">{bc.label}</span>
+                  )}
+                </span>
+              ))}
+            </nav>
+
+            {/* Classification Badge */}
+            <span
+              style={{
+                fontSize: "10px",
+                fontFamily: "var(--font-mono, monospace)",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                padding: "2px 8px",
+                borderRadius: "3px",
+                background: "rgba(234, 179, 8, 0.12)",
+                color: "#eab308",
+                border: "1px solid rgba(234, 179, 8, 0.3)",
+                textTransform: "uppercase",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+              title="Official Agency Security Classification Level"
+            >
+              🔒 {wsConfig?.classificationLabel || "AUTHORIZED ACCESS ONLY"}
+            </span>
+          </div>
 
           {/* Right side */}
           <div className="ws-topbar-right">
@@ -177,9 +217,9 @@ export default function WorkspaceShell({ children, breadcrumbs }: WorkspaceShell
                 <span>Offline Vault ({pendingDraftsCount})</span>
               </button>
             )}
-            <div className="ws-secure-status" aria-label="System status: secure">
+            <div className="ws-secure-status" aria-label="System status: secure" title="Cryptographic Ledger Integrity: Verified">
               <span className="ws-status-dot" aria-hidden="true" />
-              <span>Secure</span>
+              <span>Operational</span>
             </div>
             <NotificationBell />
             <Link href="/profile" className="ws-topbar-avatar" aria-label="Profile">

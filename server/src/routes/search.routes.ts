@@ -345,7 +345,7 @@ router.get("/", requireAuth, async (req: AuthedRequest, res: Response) => {
           where: userWhere,
           select: { id: true, name: true, email: true, role: true },
           take: limitPerType,
-          orderBy: { name: "asc" },
+          orderBy: { createdAt: "desc" },
         }),
       ]);
 

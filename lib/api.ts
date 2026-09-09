@@ -2389,3 +2389,126 @@ export async function getIntegrityDashboardSummary(token: string): Promise<Integ
   return safeJson<IntegrityDashboardSummary>(res);
 }
 
+// ─── Module 16: National Forensics Operations Workspace ──────────────────────
+
+export interface WorkspaceConfig {
+  organizationName: string;
+  unitName: string | null;
+  jurisdictionLabel: string | null;
+  classificationLabel: string;
+  environment: string;
+  allowPublicVerification: boolean;
+}
+
+export interface WorkspaceBriefingData {
+  generatedAt: string;
+  workspace: WorkspaceConfig;
+  systemHealth: {
+    api: "operational" | "degraded";
+    database: "connected" | "disconnected";
+    storage: "accessible" | "unreachable";
+    checkedAt: string;
+  };
+  briefing: {
+    criticalFindings: number;
+    highPriorityAlerts: number;
+    pendingIntegrityAssessments: number;
+    activeCases: number;
+    custodyActionsRequired: number;
+    totalEvidenceInScope: number;
+  };
+  caseReadiness: {
+    healthy: number;
+    needsReview: number;
+    atRisk: number;
+    critical: number;
+    unassessed: number;
+    totalCases: number;
+  };
+  queues: {
+    assignedToMe: Array<{
+      id: string;
+      title: string;
+      status: string;
+      priority: string;
+      relationship: "LEAD" | "ASSIGNED" | "CUSTODIAN" | "AUDITOR";
+      evidenceCount: number;
+      readinessScore: number | null;
+      readinessStatus: string;
+      openFindingsCount: number;
+      updatedAt: string;
+    }>;
+    needsEvidenceReview: Array<{
+      id: string;
+      name: string;
+      sha256: string;
+      status: string;
+      caseId?: string | null;
+      caseTitle?: string | null;
+      highestSeverity: string;
+      findingTitle?: string | null;
+      score: number | null;
+      updatedAt: string;
+    }>;
+    recentActivity: Array<{
+      id: string;
+      type: "CUSTODY" | "EVIDENCE_UPLOAD" | "INTEGRITY_ASSESSMENT" | "CASE_UPDATE";
+      action: string;
+      actorName: string;
+      actorRole: string;
+      targetId: string;
+      targetTitle: string;
+      link: string;
+      timestamp: string;
+    }>;
+  };
+}
+
+export async function getWorkspaceConfig(): Promise<WorkspaceConfig> {
+  const res = await apiFetch(`${API_URL}/workspace/config`);
+  if (!res.ok) {
+    return {
+      organizationName: "EviChain Secure Workspace",
+      unitName: null,
+      jurisdictionLabel: null,
+      classificationLabel: "AUTHORIZED ACCESS ONLY",
+      environment: "production",
+      allowPublicVerification: true,
+    };
+  }
+  return safeJson<WorkspaceConfig>(res);
+}
+
+export async function getWorkspaceBriefing(token: string): Promise<WorkspaceBriefingData> {
+  const res = await apiFetch(`${API_URL}/workspace/briefing`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to fetch workspace operational briefing");
+  }
+  return safeJson<WorkspaceBriefingData>(res);
+}
+
+export async function updateWorkspaceConfig(
+  config: Partial<WorkspaceConfig>,
+  token: string,
+): Promise<WorkspaceConfig> {
+  const res = await apiFetch(`${API_URL}/workspace/config`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const e = await safeJson<{ error: { message: string } | string }>(res);
+    const msg = typeof e.error === "object" ? e.error.message : e.error;
+    throw new Error(msg || "Failed to update workspace config");
+  }
+  return safeJson<WorkspaceConfig>(res);
+}
+
+
