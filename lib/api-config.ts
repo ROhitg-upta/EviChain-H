@@ -106,7 +106,9 @@ export function classifyApiError(err: unknown, statusCode?: number): ClassifiedA
     if (statusCode === 404) {
       return {
         kind: "NOT_FOUND",
-        message: "The requested EviChain API endpoint was not found (404).",
+        message: local
+          ? `API endpoint not found (404) at ${base}. Please ensure the backend is running with 'npm run dev' on port 4000.`
+          : `API endpoint not found (404). If accessing a deployed frontend, please ensure NEXT_PUBLIC_API_URL is configured to point to your live backend server.`,
         statusCode,
         originalError: err,
       };

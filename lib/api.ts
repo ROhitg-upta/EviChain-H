@@ -139,9 +139,6 @@ async function safeJson<T>(res: Response): Promise<T> {
   const ct = res.headers.get("content-type") ?? "";
 
   if (!ct.includes("application/json")) {
-    if (res.status === 404) {
-      throw new Error("The requested resource or endpoint was not found (404).");
-    }
     throw new Error(formatApiErrorMessage(null, res.status));
   }
 
