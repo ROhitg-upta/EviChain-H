@@ -166,7 +166,30 @@ EviChain frontend utilizes a centralized configuration module (`lib/api-config.t
 - Supports Next.js reverse-proxy rewrites (`/api/proxy/:path*`).
 - Never leaks rigid local port warnings in remote production environments.
 
-### Process Supervision with PM2
+### Render Web Service Deployment (Backend)
+1. In [Render Dashboard](https://dashboard.render.com), click **New +** $\rightarrow$ **Web Service**.
+2. Connect your GitHub repository `ROhitg-upta/EviChain-H`.
+3. Configure the web service settings:
+   - **Root Directory**: `server`
+   - **Build Command**: `npm install && npx prisma generate && npm run build`
+   - **Start Command**: `npm start` (or `node dist/index.js`)
+   - **Health Check Path**: `/health`
+4. Add Environment Variables under the **Environment** tab:
+   - `DATABASE_URL`: Your Neon PostgreSQL connection string (`postgresql://...`)
+   - `JWT_SECRET`: Random 32+ character string
+   - `REFRESH_SECRET`: Different random 32+ character string
+   - `CORS_ORIGIN`: `https://evi-chain-h.vercel.app`
+   - `NODE_ENV`: `production`
+5. Once deployed, copy your assigned Render service URL (e.g. `https://<your-service-name>.onrender.com`).
+
+### Vercel Frontend Configuration
+1. In the [Vercel Dashboard](https://vercel.com) $\rightarrow$ Project `evi-chain-h` $\rightarrow$ **Settings** $\rightarrow$ **Environment Variables**.
+2. Set `NEXT_PUBLIC_API_URL` to your actual live Render backend URL:
+   - **Key**: `NEXT_PUBLIC_API_URL`
+   - **Value**: `https://<your-service-name>.onrender.com`
+3. Go to **Deployments** $\rightarrow$ Click **Redeploy** on the latest build to apply the variable.
+
+### Process Supervision with PM2 (Self-Hosted / VPS)
 For production deployment on Linux / Windows Server instances:
 
 ```bash

@@ -262,14 +262,15 @@ const isRunningTest =
   process.argv.some((arg) => arg.includes("test"));
 
 if (!isRunningTest) {
-  // Start server listening
-  server = app.listen(port, () => {
+  // Start server listening (bound to 0.0.0.0 for cloud PaaS and container ingress)
+  server = app.listen(port, "0.0.0.0", () => {
     console.log("==================================================");
     console.log("EviChain API Booted Successfully");
     console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+    console.log(`Host: 0.0.0.0`);
     console.log(`Port: ${port}`);
-    console.log(`Health Check: http://localhost:${port}/health`);
-    console.log("Routes: /auth, /cases, /evidence, /audit, /public, /reports, /search, /users, /notifications, /admin, /profile");
+    console.log(`Health Check: /health`);
+    console.log("Routes: /auth, /cases, /evidence, /audit, /public, /reports, /search, /users, /notifications, /admin, /profile, /workspace");
     console.log("==================================================");
   });
 
