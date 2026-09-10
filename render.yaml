@@ -4,8 +4,8 @@ services:
     env: node
     plan: free
     rootDir: server
-    buildCommand: npm install && npx prisma generate && npm run build
-    startCommand: node dist/index.js
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build
+    startCommand: npm start
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV

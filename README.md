@@ -171,8 +171,8 @@ EviChain frontend utilizes a centralized configuration module (`lib/api-config.t
 2. Connect your GitHub repository `ROhitg-upta/EviChain-H`.
 3. Configure the web service settings:
    - **Root Directory**: `server`
-   - **Build Command**: `npm install && npx prisma generate && npm run build`
-   - **Start Command**: `npm start` (or `node dist/index.js`)
+   - **Build Command**: `npm install --include=dev && npx prisma generate && npm run build`
+   - **Start Command**: `npm start`
    - **Health Check Path**: `/health`
 4. Add Environment Variables under the **Environment** tab:
    - `DATABASE_URL`: Your Neon PostgreSQL connection string (`postgresql://...`)
