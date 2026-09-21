@@ -3,8 +3,12 @@
     "dev": "tsx watch src/index.ts",
     "build": "prisma generate && tsc",
     "postinstall": "prisma generate",
+    "seed": "tsx prisma/seed.ts",
     "test": "tsx tests/module2.test.ts",
     "start": "node dist/index.js"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "devDependencies": {
     "@types/archiver": "^6.0.4",
