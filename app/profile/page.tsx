@@ -28,6 +28,8 @@ interface NotificationPrefs {
   weeklyDigest: boolean;
 }
 
+
+
 export default function ProfilePage() {
   const router = useRouter();
   const { user, loading: authLoading, accessToken, signOut } = useAuth();
